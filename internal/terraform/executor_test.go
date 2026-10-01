@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	tfjson "github.com/hashicorp/terraform-json"
@@ -201,6 +202,95 @@ func TestRunCheckMergesCredentialsIntoEnv(t *testing.T) {
 		if _, ok := captured.env[forbidden]; ok {
 			t.Errorf("env contains %s, which SetEnv would reject", forbidden)
 		}
+	}
+}
+
+func TestRunCheckScrubsCredentialValuesFromErrors(t *testing.T) {
+	source := t.TempDir()
+	writeFile(t, filepath.Join(source, "main.tf"), "resource")
+
+	const secret = "s3cr3t-api-key-value"
+	credFile := filepath.Join(t.TempDir(), "creds.env")
+	writeFile(t, credFile, "PROVIDER_API_KEY="+secret+"\n")
+
+	// A provider echoing the key it was handed - exactly the case an error
+	// stored in the database (and shown in the UI) must not carry.
+	planErr := errors.New("request rejected: key " + secret + " is not authorized")
+	e, _ := newTestExecutor(t, &fakeClient{planErr: planErr})
+
+	_, err := e.RunCheck(context.Background(), CheckInput{
+		SourcePath:        source,
+		BinaryKind:        "terraform",
+		CredentialEnvFile: credFile,
+	})
+	if err == nil {
+		t.Fatal("RunCheck succeeded, want the plan error")
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Errorf("error leaked the credential value: %v", err)
+	}
+	if !strings.Contains(err.Error(), scrubPlaceholder) {
+		t.Errorf("error = %q, want it to show the value was redacted", err)
+	}
+	if !errors.Is(err, planErr) {
+		t.Error("errors.Is no longer matches the original error")
+	}
+}
+
+func TestSweepStaleRemovesOnlyCheckDirectories(t *testing.T) {
+	base := t.TempDir()
+	e, err := NewExecutor(base, t.TempDir())
+	if err != nil {
+		t.Fatalf("NewExecutor: %v", err)
+	}
+
+	writeFile(t, filepath.Join(base, "check-aaa", "plan.out"), "unredacted plan from a killed check")
+	writeFile(t, filepath.Join(base, "check-bbb", "nested", "main.tf"), "x")
+	writeFile(t, filepath.Join(base, "unrelated-dir", "keep.txt"), "x")
+	writeFile(t, filepath.Join(base, "check-looks-like-a-file"), "x")
+
+	removed, err := e.SweepStale()
+	if err != nil {
+		t.Fatalf("SweepStale: %v", err)
+	}
+	if removed != 2 {
+		t.Errorf("removed = %d, want 2", removed)
+	}
+
+	for _, gone := range []string{"check-aaa", "check-bbb"} {
+		if _, err := os.Stat(filepath.Join(base, gone)); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("%s still exists after SweepStale", gone)
+		}
+	}
+	for _, kept := range []string{"unrelated-dir", "check-looks-like-a-file"} {
+		if _, err := os.Stat(filepath.Join(base, kept)); err != nil {
+			t.Errorf("%s was removed, but SweepStale must only remove check directories: %v", kept, err)
+		}
+	}
+}
+
+func TestRunCheckRejectsSourceContainingScratchDirectory(t *testing.T) {
+	// A workspace pointed at a parent of the data directory: copying it
+	// would recurse into the scratch directory being filled.
+	parent := t.TempDir()
+	writeFile(t, filepath.Join(parent, "main.tf"), "resource")
+
+	e, err := NewExecutor(filepath.Join(parent, "data", "tmp"), filepath.Join(parent, "data", "plugin-cache"))
+	if err != nil {
+		t.Fatalf("NewExecutor: %v", err)
+	}
+	clientBuilt := false
+	e.newClient = func(_, _ string, _ map[string]string) (client, error) {
+		clientBuilt = true
+		return &fakeClient{plan: &tfjson.Plan{}}, nil
+	}
+
+	_, err = e.RunCheck(context.Background(), CheckInput{SourcePath: parent, BinaryKind: "terraform"})
+	if err == nil {
+		t.Fatal("RunCheck accepted a source path that contains its own scratch directory")
+	}
+	if clientBuilt {
+		t.Error("a client was built despite the rejected source path")
 	}
 }
 

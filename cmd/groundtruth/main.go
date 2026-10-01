@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -69,6 +70,15 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	// A check killed outright (SIGKILL, OOM) never ran its deferred cleanup,
+	// and its scratch directory can hold an unredacted plan file.
+	removed, err := executor.SweepStale()
+	if err != nil {
+		logger.Warn("could not remove every stale check directory; remove them manually", "dir", cfg.CheckTmpDir(), "error", err)
+	}
+	if removed > 0 {
+		logger.Info("removed check directories left behind by an earlier run", "count", removed)
+	}
 	checkService := checks.NewService(queries, executor)
 	checkService.SetNotifier(alerting.NewDispatcher(queries, logger, cfg.BaseURL))
 
@@ -89,8 +99,15 @@ func run(logger *slog.Logger) error {
 	})
 
 	srv := &http.Server{
-		Addr:              cfg.Addr,
-		Handler:           handler,
+		Addr:    cfg.Addr,
+		Handler: handler,
+		// Every request's context derives from ctx, so SIGTERM cancels a
+		// check running inside a "check now" request just as it cancels one
+		// started by the scheduler. Without it such a check would keep
+		// running through the shutdown grace period and then be cut off
+		// mid-flight, skipping its deferred cleanup of the scratch
+		// directory (which can hold an unredacted plan file).
+		BaseContext:       func(net.Listener) context.Context { return ctx },
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
