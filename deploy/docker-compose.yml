@@ -2,12 +2,23 @@ services:
   groundtruth:
     image: ghcr.io/carlosalbertorg/groundtruth:latest
     ports:
-      - "8080:8080"
+      # Loopback only. Until the first admin account exists, anyone who can
+      # reach this port can create it, so don't publish it on every
+      # interface (a bare "8080:8080") until you have. To reach groundtruth
+      # from elsewhere, put a TLS-terminating reverse proxy in front of it
+      # and set GROUNDTRUTH_BASE_URL below.
+      - "127.0.0.1:8080:8080"
     environment:
       # Set this to groundtruth's real externally-visible URL (including
       # https://) once you're running behind TLS, so the session cookie
       # is marked Secure. Leave unset for local HTTP testing.
       GROUNDTRUTH_BASE_URL: ""
+    # groundtruth is a plain HTTP server running as an unprivileged user: it
+    # needs none of the Linux capabilities Docker grants by default.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     volumes:
       # Persists the SQLite database, the Terraform/OpenTofu plugin
       # cache, and per-check scratch space.
@@ -17,11 +28,14 @@ services:
       # to this mount.
       - ./modules:/modules:ro
       # Optional: a dotenv-format file with cloud credentials, read
-      # fresh on every check and never stored by groundtruth. Omit this
-      # mount (and a workspace's credential_env_file) entirely if your
-      # module's backend/providers pick up credentials another way
-      # (an attached IAM role, ambient environment variables, etc).
-      - ./credentials.env:/secrets/credentials.env:ro
+      # fresh on every check and never stored by groundtruth. Uncomment
+      # this only if your module's backend/providers don't pick up
+      # credentials another way (an attached IAM role, ambient
+      # environment variables, etc), and create the file first: if it
+      # doesn't exist, Docker creates a *directory* of that name in its
+      # place. Then set the workspace's credential env file to
+      # /secrets/credentials.env.
+      # - ./credentials.env:/secrets/credentials.env:ro
     restart: unless-stopped
 
 volumes:

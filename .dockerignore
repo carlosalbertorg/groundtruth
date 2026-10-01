@@ -7,3 +7,11 @@ internal/webassets/dist/*
 data
 *.exe
 groundtruth
+# Keep local secrets, state and databases out of the build context.
+**/*.env
+**/.env*
+**/terraform.tfstate*
+**/.terraform
+*.db
+*.db-wal
+*.db-shm
