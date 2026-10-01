@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api } from './client'
+import { api, ApiError } from './client'
 
 export type CheckStatus = 'queued' | 'running' | 'clean' | 'drifted' | 'failed'
 export type DriftAction = 'no-op' | 'create' | 'update' | 'delete' | 'replace'
@@ -52,6 +52,21 @@ export function useCheckDetail(checkId: string) {
     queryKey: queryKeys.detail(checkId),
     queryFn: () => api.get<DriftCheck>(`/checks/${checkId}`),
   })
+}
+
+/** A human-readable reason a "Check now" request was rejected. */
+export function describeCheckError(err: unknown): string {
+  if (err instanceof ApiError) {
+    switch (err.code) {
+      case 'check_in_progress':
+        return 'A check is already running for this workspace.'
+      case 'workspace_not_found':
+        return 'This workspace no longer exists.'
+      case 'unauthorized':
+        return 'Your session has expired. Sign in again.'
+    }
+  }
+  return 'The check could not be run. Please try again.'
 }
 
 export function useRunCheck(workspaceId: string) {

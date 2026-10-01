@@ -8,7 +8,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	tfjson "github.com/hashicorp/terraform-json"
@@ -48,11 +50,20 @@ type Notifier interface {
 	Notify(ctx context.Context, ws sqlc.Workspace, check sqlc.DriftCheck, previousStatus string)
 }
 
+// ErrCheckInProgress is returned by Run when a check for the same workspace
+// is already running. Two overlapping checks of one workspace would do the
+// same expensive work twice and, worse, each judge "did the status change?"
+// against the same stale previous status - alerting twice for one change.
+var ErrCheckInProgress = errors.New("a check is already running for this workspace")
+
 // Service runs drift checks and persists their outcome.
 type Service struct {
 	queries  *sqlc.Queries
 	executor executor
 	notifier Notifier
+
+	mu      sync.Mutex
+	running map[string]struct{} // workspace IDs with a check in flight; lazily created
 }
 
 // NewService builds a Service backed by queries and executor.
@@ -80,8 +91,26 @@ type Result struct {
 // A failed *terraform run* (bad source path, init error, timeout, ...)
 // is not a Go error from Run's perspective - it's recorded as a
 // "failed" check, same as any other outcome. Run only returns an error
-// when persisting that outcome itself fails.
+// when persisting that outcome itself fails, or ErrCheckInProgress when
+// ws already has a check running (whoever started it - the scheduler, the
+// dashboard, or an API token).
 func (s *Service) Run(ctx context.Context, ws sqlc.Workspace, triggeredBy string) (Result, error) {
+	if !s.acquire(ws.ID) {
+		return Result{}, ErrCheckInProgress
+	}
+	defer s.release(ws.ID)
+
+	// Whether this check is a status *transition* worth alerting on depends
+	// on the workspace's status just before it. Read that now, under the
+	// guard, instead of trusting the caller's copy of ws: a scheduled check
+	// can sit queued behind the concurrency limit long enough for a manual
+	// one to finish in between, and judging against the stale value would
+	// announce the same change twice.
+	previousStatus := ws.LastCheckStatus.String
+	if current, err := s.queries.GetWorkspace(ctx, ws.ID); err == nil {
+		previousStatus = current.LastCheckStatus.String
+	}
+
 	startedAt := time.Now()
 	plan, runErr := s.executor.RunCheck(ctx, terraform.CheckInput{
 		SourcePath:          ws.SourcePath,
@@ -140,10 +169,32 @@ func (s *Service) Run(ctx context.Context, ws sqlc.Workspace, triggeredBy string
 	}
 
 	if s.notifier != nil {
-		s.notifier.Notify(ctx, ws, check, ws.LastCheckStatus.String)
+		s.notifier.Notify(ctx, ws, check, previousStatus)
 	}
 
 	return Result{Check: check, Resources: result.Resources}, nil
+}
+
+// acquire marks workspaceID as having a check in flight, reporting false if
+// it already did.
+func (s *Service) acquire(workspaceID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, busy := s.running[workspaceID]; busy {
+		return false
+	}
+	if s.running == nil {
+		s.running = make(map[string]struct{})
+	}
+	s.running[workspaceID] = struct{}{}
+	return true
+}
+
+func (s *Service) release(workspaceID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.running, workspaceID)
 }
 
 func (s *Service) persistResource(ctx context.Context, checkID string, res drift.ResourceDrift) error {

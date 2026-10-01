@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -10,18 +11,31 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/carlosalbertorg/groundtruth/internal/auth"
 	"github.com/carlosalbertorg/groundtruth/internal/checks"
 	"github.com/carlosalbertorg/groundtruth/internal/store/sqlc"
 )
 
-const defaultCheckHistoryLimit = 50
+const (
+	defaultCheckHistoryLimit = 50
+
+	// maxCheckHistoryLimit caps ?limit=: an unbounded value would let one
+	// request read every check a workspace has ever run into memory.
+	maxCheckHistoryLimit = 500
+)
+
+// checkRunner is the part of *checks.Service the handlers use, so tests can
+// supply a fake.
+type checkRunner interface {
+	Run(ctx context.Context, ws sqlc.Workspace, triggeredBy string) (checks.Result, error)
+}
 
 type checkHandlers struct {
 	queries *sqlc.Queries
-	service *checks.Service
+	service checkRunner
 }
 
-func newCheckHandlers(queries *sqlc.Queries, service *checks.Service) *checkHandlers {
+func newCheckHandlers(queries *sqlc.Queries, service checkRunner) *checkHandlers {
 	return &checkHandlers{queries: queries, service: service}
 }
 
@@ -117,8 +131,19 @@ func (h *checkHandlers) runNow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.service.Run(r.Context(), ws, checks.TriggeredByManual)
+	// A check started with an API token (CI) is recorded as such, so the
+	// history can tell "someone clicked Check now" from "the pipeline did".
+	triggeredBy := checks.TriggeredByManual
+	if _, viaToken := auth.APITokenFromContext(r.Context()); viaToken {
+		triggeredBy = checks.TriggeredByAPI
+	}
+
+	result, err := h.service.Run(r.Context(), ws, triggeredBy)
 	if err != nil {
+		if errors.Is(err, checks.ErrCheckInProgress) {
+			writeJSONError(w, http.StatusConflict, "check_in_progress")
+			return
+		}
 		writeJSONError(w, http.StatusInternalServerError, "internal_error")
 		return
 	}
@@ -173,16 +198,9 @@ func (h *checkHandlers) history(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	limit := int64(defaultCheckHistoryLimit)
-	if raw := r.URL.Query().Get("limit"); raw != "" {
-		if parsed, err := strconv.ParseInt(raw, 10, 64); err == nil && parsed > 0 {
-			limit = parsed
-		}
-	}
-
 	rows, err := h.queries.ListDriftChecksForWorkspace(r.Context(), sqlc.ListDriftChecksForWorkspaceParams{
 		WorkspaceID: workspaceID,
-		Limit:       limit,
+		Limit:       parseHistoryLimit(r.URL.Query().Get("limit")),
 	})
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "internal_error")
@@ -194,6 +212,17 @@ func (h *checkHandlers) history(w http.ResponseWriter, r *http.Request) {
 		resp[i] = toDriftCheckResponse(c)
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// parseHistoryLimit turns the ?limit= query value into a row count: the
+// default when it's absent or unusable, and never more than
+// maxCheckHistoryLimit.
+func parseHistoryLimit(raw string) int64 {
+	parsed, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || parsed <= 0 {
+		return defaultCheckHistoryLimit
+	}
+	return min(parsed, maxCheckHistoryLimit)
 }
 
 func (h *checkHandlers) get(w http.ResponseWriter, r *http.Request) {

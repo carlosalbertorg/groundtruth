@@ -1,5 +1,5 @@
 import { Link, useParams } from 'react-router-dom'
-import { useRunCheck, useWorkspaceChecks } from '../api/checks'
+import { describeCheckError, useRunCheck, useWorkspaceChecks } from '../api/checks'
 import { useWorkspace } from '../api/workspaces'
 import { StatusBadge } from '../components/StatusBadge'
 
@@ -40,6 +40,11 @@ export function WorkspaceDetailPage() {
                 {runCheck.isPending ? 'Checking…' : 'Check now'}
               </button>
             </div>
+            {runCheck.isError && (
+              <p role="alert" className="mt-3 text-sm text-red-400">
+                {describeCheckError(runCheck.error)}
+              </p>
+            )}
 
             <h2 className="mt-8 text-sm font-medium text-neutral-300">History</h2>
 

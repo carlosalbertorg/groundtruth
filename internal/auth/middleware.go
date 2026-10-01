@@ -11,7 +11,10 @@ import (
 
 type contextKey int
 
-const userContextKey contextKey = iota
+const (
+	userContextKey contextKey = iota
+	apiTokenContextKey
+)
 
 // RequireSession resolves the gt_session cookie into a user and makes it
 // available via UserFromContext, or responds 401 if there's no valid
@@ -52,24 +55,35 @@ func UserFromContext(ctx context.Context) (sqlc.User, bool) {
 // RequireSessionOrAPIToken allows either a valid session cookie or a
 // valid "Authorization: Bearer <token>" API token - for routes that
 // need to work both from the browser and from an unattended caller like
-// CI. It does not populate UserFromContext for the token path; nothing
-// behind this middleware needs the caller's identity today.
+// CI. On the token path it does not populate UserFromContext (a token is
+// not a login session); a handler that needs to know which kind of caller
+// it has can ask APITokenFromContext.
 func RequireSessionOrAPIToken(sessions *SessionManager, tokens *APITokenManager, queries *sqlc.Queries) func(http.Handler) http.Handler {
 	requireSession := RequireSession(sessions, queries)
 	return func(next http.Handler) http.Handler {
 		sessionWrapped := requireSession(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if token, ok := bearerToken(r); ok {
-				if _, err := tokens.Validate(r.Context(), token); err != nil {
+				apiToken, err := tokens.Validate(r.Context(), token)
+				if err != nil {
 					writeJSONError(w, http.StatusUnauthorized, "unauthorized")
 					return
 				}
-				next.ServeHTTP(w, r)
+				ctx := context.WithValue(r.Context(), apiTokenContextKey, apiToken)
+				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
 			sessionWrapped.ServeHTTP(w, r)
 		})
 	}
+}
+
+// APITokenFromContext returns the API token that authenticated the request,
+// if RequireSessionOrAPIToken let it through on the token path rather than
+// on a session cookie.
+func APITokenFromContext(ctx context.Context) (sqlc.ApiToken, bool) {
+	t, ok := ctx.Value(apiTokenContextKey).(sqlc.ApiToken)
+	return t, ok
 }
 
 func bearerToken(r *http.Request) (string, bool) {

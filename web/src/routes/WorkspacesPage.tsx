@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useLogout } from '../api/auth'
-import { useRunCheck } from '../api/checks'
+import { describeCheckError, useRunCheck } from '../api/checks'
 import { type Workspace, useDeleteWorkspace, useWorkspaces } from '../api/workspaces'
 import { StatusBadge } from '../components/StatusBadge'
 import { WorkspaceFormDialog } from './WorkspaceFormDialog'
@@ -133,6 +133,11 @@ function WorkspaceRow({
         <button onClick={onDelete} className="ml-4 text-red-400/80 hover:text-red-400">
           Delete
         </button>
+        {runCheck.isError && (
+          <p role="alert" className="mt-1 text-xs whitespace-normal text-red-400">
+            {describeCheckError(runCheck.error)}
+          </p>
+        )}
       </td>
     </tr>
   )
