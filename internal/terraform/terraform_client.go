@@ -1,0 +1,47 @@
+package terraform
+
+import (
+	"context"
+	"fmt"
+	"os/exec"
+
+	"github.com/hashicorp/terraform-exec/tfexec"
+	tfjson "github.com/hashicorp/terraform-json"
+)
+
+type terraformClient struct {
+	tf *tfexec.Terraform
+}
+
+func newTerraformClient(workDir string, env map[string]string) (client, error) {
+	execPath, err := exec.LookPath("terraform")
+	if err != nil {
+		return nil, fmt.Errorf("terraform binary not found on PATH: %w", err)
+	}
+
+	tf, err := tfexec.NewTerraform(workDir, execPath)
+	if err != nil {
+		return nil, fmt.Errorf("init terraform client: %w", err)
+	}
+	if err := tf.SetEnv(env); err != nil {
+		return nil, fmt.Errorf("set terraform environment: %w", err)
+	}
+
+	return &terraformClient{tf: tf}, nil
+}
+
+func (c *terraformClient) Init(ctx context.Context) error {
+	// Upgrade(false): never let a scheduled drift check silently bump
+	// provider/module versions. That's a deliberate operator action, not
+	// something that should happen as a side effect of checking drift.
+	return c.tf.Init(ctx, tfexec.Upgrade(false))
+}
+
+func (c *terraformClient) PlanRefreshOnly(ctx context.Context, outPath string) error {
+	_, err := c.tf.Plan(ctx, tfexec.Out(outPath), tfexec.RefreshOnly(true))
+	return err
+}
+
+func (c *terraformClient) ShowPlanFile(ctx context.Context, path string) (*tfjson.Plan, error) {
+	return c.tf.ShowPlanFile(ctx, path)
+}

@@ -18,6 +18,7 @@ import (
 	"github.com/carlosalbertorg/groundtruth/internal/httpapi"
 	"github.com/carlosalbertorg/groundtruth/internal/store"
 	"github.com/carlosalbertorg/groundtruth/internal/store/sqlc"
+	"github.com/carlosalbertorg/groundtruth/internal/terraform"
 	"github.com/carlosalbertorg/groundtruth/internal/webassets"
 )
 
@@ -56,6 +57,11 @@ func run(logger *slog.Logger) error {
 
 	queries := sqlc.New(db)
 
+	executor, err := terraform.NewExecutor(cfg.CheckTmpDir(), cfg.PluginCacheDir())
+	if err != nil {
+		return err
+	}
+
 	spa, err := webassets.Dist()
 	if err != nil {
 		return err
@@ -65,6 +71,7 @@ func run(logger *slog.Logger) error {
 		SPA:           spa,
 		Logger:        logger,
 		Queries:       queries,
+		Executor:      executor,
 		Sessions:      auth.NewSessionManager(queries),
 		SetupGate:     auth.NewSetupGate(queries),
 		SecureCookies: cfg.SecureCookies(),

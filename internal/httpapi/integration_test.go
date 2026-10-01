@@ -13,6 +13,7 @@ import (
 	"github.com/carlosalbertorg/groundtruth/internal/httpapi"
 	"github.com/carlosalbertorg/groundtruth/internal/store/sqlc"
 	"github.com/carlosalbertorg/groundtruth/internal/store/storetest"
+	"github.com/carlosalbertorg/groundtruth/internal/terraform"
 	"github.com/carlosalbertorg/groundtruth/internal/webassets"
 )
 
@@ -25,10 +26,16 @@ func newTestRouter(t *testing.T) http.Handler {
 		t.Fatalf("webassets.Dist: %v", err)
 	}
 
+	executor, err := terraform.NewExecutor(t.TempDir(), t.TempDir())
+	if err != nil {
+		t.Fatalf("terraform.NewExecutor: %v", err)
+	}
+
 	return httpapi.NewRouter(httpapi.Deps{
 		SPA:           spa,
 		Logger:        slog.New(slog.DiscardHandler),
 		Queries:       queries,
+		Executor:      executor,
 		Sessions:      auth.NewSessionManager(queries),
 		SetupGate:     auth.NewSetupGate(queries),
 		SecureCookies: false,

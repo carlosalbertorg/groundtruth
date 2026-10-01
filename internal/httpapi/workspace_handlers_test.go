@@ -117,6 +117,35 @@ func TestWorkspaceCreateValidation(t *testing.T) {
 			},
 			wantCode: "invalid_check_timeout_seconds",
 		},
+		{
+			name: "check timeout above the maximum",
+			body: map[string]any{
+				"name": "a", "source_path": "/x", "binary_kind": "terraform",
+				"check_timeout_seconds": 3601,
+			},
+			wantCode: "invalid_check_timeout_seconds",
+		},
+		{
+			name:     "relative source path",
+			body:     map[string]any{"name": "a", "source_path": "relative/path", "binary_kind": "terraform"},
+			wantCode: "source_path_must_be_absolute",
+		},
+		{
+			name: "working subdirectory escapes upward",
+			body: map[string]any{
+				"name": "a", "source_path": "/x", "binary_kind": "terraform",
+				"working_subdirectory": "../../etc",
+			},
+			wantCode: "invalid_working_subdirectory",
+		},
+		{
+			name: "working subdirectory is absolute",
+			body: map[string]any{
+				"name": "a", "source_path": "/x", "binary_kind": "terraform",
+				"working_subdirectory": "/etc",
+			},
+			wantCode: "invalid_working_subdirectory",
+		},
 	}
 
 	for _, tc := range cases {

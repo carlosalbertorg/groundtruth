@@ -17,14 +17,16 @@ import (
 	"github.com/carlosalbertorg/groundtruth/internal/auth"
 	"github.com/carlosalbertorg/groundtruth/internal/buildinfo"
 	"github.com/carlosalbertorg/groundtruth/internal/store/sqlc"
+	"github.com/carlosalbertorg/groundtruth/internal/terraform"
 )
 
 // Deps are NewRouter's dependencies: everything handlers need, built once
 // at startup and threaded through rather than reached via globals.
 type Deps struct {
-	SPA     fs.FS // embedded frontend build (internal/webassets)
-	Logger  *slog.Logger
-	Queries *sqlc.Queries
+	SPA      fs.FS // embedded frontend build (internal/webassets)
+	Logger   *slog.Logger
+	Queries  *sqlc.Queries
+	Executor *terraform.Executor
 
 	Sessions      *auth.SessionManager
 	SetupGate     *auth.SetupGate
@@ -44,7 +46,6 @@ func NewRouter(d Deps) http.Handler {
 	// as-is until a configurable trusted-proxy allowlist is worth adding.
 	r.Use(slogRequestLogger(d.Logger))
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.Timeout(60 * time.Second))
 
 	r.Get("/healthz", handleHealthz)
 
@@ -56,31 +57,41 @@ func NewRouter(d Deps) http.Handler {
 	// mistypes a password, not enough to brute-force one at any speed
 	// that matters.
 	loginLimiter := newPerIPLimiter(rate.Every(6*time.Second), 5)
+	// Applied explicitly to the ordinary CRUD-ish routes below, not
+	// globally: the check-now route can legitimately run for minutes
+	// (bounded by that workspace's own, operator-configured
+	// check_timeout_seconds, enforced inside the executor itself), so it
+	// deliberately has no blanket request timeout layered on top.
+	shortTimeout := middleware.Timeout(60 * time.Second)
 
 	r.Route("/api", func(r chi.Router) {
 		// Reachable before the first admin account exists; every other
 		// route below requires setup to be complete.
 		r.Get("/setup/status", setup.status)
-		r.With(loginLimiter.middleware).Post("/setup/admin", setup.createAdmin)
+		r.With(loginLimiter.middleware, shortTimeout).Post("/setup/admin", setup.createAdmin)
 
 		r.Group(func(r chi.Router) {
 			r.Use(requireSetup)
 
-			r.With(loginLimiter.middleware).Post("/auth/login", authH.login)
+			r.With(loginLimiter.middleware, shortTimeout).Post("/auth/login", authH.login)
 
 			r.Group(func(r chi.Router) {
 				r.Use(requireSession)
-				r.Post("/auth/logout", authH.logout)
-				r.Get("/auth/me", authH.me)
+				r.With(shortTimeout).Post("/auth/logout", authH.logout)
+				r.With(shortTimeout).Get("/auth/me", authH.me)
 
 				workspaces := newWorkspaceHandlers(d.Queries)
 				r.Route("/workspaces", func(r chi.Router) {
+					r.Use(shortTimeout)
 					r.Get("/", workspaces.list)
 					r.Post("/", workspaces.create)
 					r.Get("/{id}", workspaces.get)
 					r.Patch("/{id}", workspaces.update)
 					r.Delete("/{id}", workspaces.delete)
 				})
+
+				checks := newCheckHandlers(d.Queries, d.Executor)
+				r.Post("/workspaces/{id}/check", checks.runNow)
 			})
 		})
 	})

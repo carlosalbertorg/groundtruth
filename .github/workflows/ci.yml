@@ -57,6 +57,21 @@ jobs:
       - run: go vet ./...
       - run: go test ./... -race
 
+  test-go-integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      # Exercises the real terraform binary end to end (init -> plan
+      # -refresh-only -> show -> drift.FromPlan) against a fixture module
+      # using the local/null providers only - no cloud credentials.
+      - run: go test -tags=integration ./internal/terraform/... -v
+
   lint-frontend:
     runs-on: ubuntu-latest
     defaults:
