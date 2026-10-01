@@ -16,17 +16,17 @@ import (
 
 	"github.com/carlosalbertorg/groundtruth/internal/auth"
 	"github.com/carlosalbertorg/groundtruth/internal/buildinfo"
+	"github.com/carlosalbertorg/groundtruth/internal/checks"
 	"github.com/carlosalbertorg/groundtruth/internal/store/sqlc"
-	"github.com/carlosalbertorg/groundtruth/internal/terraform"
 )
 
 // Deps are NewRouter's dependencies: everything handlers need, built once
 // at startup and threaded through rather than reached via globals.
 type Deps struct {
-	SPA      fs.FS // embedded frontend build (internal/webassets)
-	Logger   *slog.Logger
-	Queries  *sqlc.Queries
-	Executor *terraform.Executor
+	SPA          fs.FS // embedded frontend build (internal/webassets)
+	Logger       *slog.Logger
+	Queries      *sqlc.Queries
+	CheckService *checks.Service
 
 	Sessions      *auth.SessionManager
 	SetupGate     *auth.SetupGate
@@ -90,8 +90,10 @@ func NewRouter(d Deps) http.Handler {
 					r.Delete("/{id}", workspaces.delete)
 				})
 
-				checks := newCheckHandlers(d.Queries, d.Executor)
-				r.Post("/workspaces/{id}/check", checks.runNow)
+				checkH := newCheckHandlers(d.Queries, d.CheckService)
+				r.Post("/workspaces/{id}/check", checkH.runNow)
+				r.With(shortTimeout).Get("/workspaces/{id}/checks", checkH.history)
+				r.With(shortTimeout).Get("/checks/{checkID}", checkH.get)
 			})
 		})
 	})

@@ -14,6 +14,7 @@ import (
 
 	"github.com/carlosalbertorg/groundtruth/internal/auth"
 	"github.com/carlosalbertorg/groundtruth/internal/buildinfo"
+	"github.com/carlosalbertorg/groundtruth/internal/checks"
 	"github.com/carlosalbertorg/groundtruth/internal/config"
 	"github.com/carlosalbertorg/groundtruth/internal/httpapi"
 	"github.com/carlosalbertorg/groundtruth/internal/store"
@@ -61,6 +62,7 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	checkService := checks.NewService(queries, executor)
 
 	spa, err := webassets.Dist()
 	if err != nil {
@@ -71,7 +73,7 @@ func run(logger *slog.Logger) error {
 		SPA:           spa,
 		Logger:        logger,
 		Queries:       queries,
-		Executor:      executor,
+		CheckService:  checkService,
 		Sessions:      auth.NewSessionManager(queries),
 		SetupGate:     auth.NewSetupGate(queries),
 		SecureCookies: cfg.SecureCookies(),

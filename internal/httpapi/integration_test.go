@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/carlosalbertorg/groundtruth/internal/auth"
+	"github.com/carlosalbertorg/groundtruth/internal/checks"
 	"github.com/carlosalbertorg/groundtruth/internal/httpapi"
 	"github.com/carlosalbertorg/groundtruth/internal/store/sqlc"
 	"github.com/carlosalbertorg/groundtruth/internal/store/storetest"
@@ -35,7 +36,7 @@ func newTestRouter(t *testing.T) http.Handler {
 		SPA:           spa,
 		Logger:        slog.New(slog.DiscardHandler),
 		Queries:       queries,
-		Executor:      executor,
+		CheckService:  checks.NewService(queries, executor),
 		Sessions:      auth.NewSessionManager(queries),
 		SetupGate:     auth.NewSetupGate(queries),
 		SecureCookies: false,

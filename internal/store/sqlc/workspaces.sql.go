@@ -255,3 +255,18 @@ func (q *Queries) UpdateWorkspace(ctx context.Context, arg UpdateWorkspaceParams
 	)
 	return i, err
 }
+
+const updateWorkspaceLastCheck = `-- name: UpdateWorkspaceLastCheck :exec
+UPDATE workspaces SET last_check_id = ?, last_check_status = ? WHERE id = ?
+`
+
+type UpdateWorkspaceLastCheckParams struct {
+	LastCheckID     sql.NullString `db:"last_check_id" json:"last_check_id"`
+	LastCheckStatus sql.NullString `db:"last_check_status" json:"last_check_status"`
+	ID              string         `db:"id" json:"id"`
+}
+
+func (q *Queries) UpdateWorkspaceLastCheck(ctx context.Context, arg UpdateWorkspaceLastCheckParams) error {
+	_, err := q.db.ExecContext(ctx, updateWorkspaceLastCheck, arg.LastCheckID, arg.LastCheckStatus, arg.ID)
+	return err
+}
