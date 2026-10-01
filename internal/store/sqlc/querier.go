@@ -13,15 +13,21 @@ type Querier interface {
 	CountUsers(ctx context.Context) (int64, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) error
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
+	CreateWorkspace(ctx context.Context, arg CreateWorkspaceParams) (Workspace, error)
 	DeleteExpiredSessions(ctx context.Context, expiresAt time.Time) error
 	DeleteSession(ctx context.Context, tokenHash string) error
 	DeleteSessionsForUser(ctx context.Context, userID string) error
+	DeleteWorkspace(ctx context.Context, id string) error
 	GetSessionByTokenHash(ctx context.Context, tokenHash string) (Session, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id string) (User, error)
+	GetWorkspace(ctx context.Context, id string) (Workspace, error)
+	GetWorkspaceByName(ctx context.Context, name string) (Workspace, error)
 	ListUsers(ctx context.Context) ([]User, error)
+	ListWorkspaces(ctx context.Context) ([]Workspace, error)
 	TouchSession(ctx context.Context, arg TouchSessionParams) error
 	UpdateUserLastLogin(ctx context.Context, arg UpdateUserLastLoginParams) error
+	UpdateWorkspace(ctx context.Context, arg UpdateWorkspaceParams) (Workspace, error)
 }
 
 var _ Querier = (*Queries)(nil)

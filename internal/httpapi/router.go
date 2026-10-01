@@ -72,6 +72,15 @@ func NewRouter(d Deps) http.Handler {
 				r.Use(requireSession)
 				r.Post("/auth/logout", authH.logout)
 				r.Get("/auth/me", authH.me)
+
+				workspaces := newWorkspaceHandlers(d.Queries)
+				r.Route("/workspaces", func(r chi.Router) {
+					r.Get("/", workspaces.list)
+					r.Post("/", workspaces.create)
+					r.Get("/{id}", workspaces.get)
+					r.Patch("/{id}", workspaces.update)
+					r.Delete("/{id}", workspaces.delete)
+				})
 			})
 		})
 	})
