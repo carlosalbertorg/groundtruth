@@ -14,7 +14,7 @@ In that screenshot, two files no longer match what Terraform recorded. Both show
 
 ## What it does
 
-- **Read-only.** groundtruth detects and reports drift; it never runs `apply` and cannot modify your infrastructure.
+- **Read-only.** groundtruth detects and reports drift; it never runs `apply` and cannot modify your infrastructure. It doesn't take your backend's state lock either, so it can't block your pipeline, or leave a stale lock behind if a check is killed.
 - **No cloud credentials stored.** Credentials are supplied by the operator at runtime (an env file you mount yourself). They're never written to groundtruth's database, and their values are scrubbed from error messages before those are stored. (An alert destination's webhook secret is different: it has to be stored — see [what groundtruth does store](docs/ARCHITECTURE.md#what-groundtruth-does-store).)
 - **No shell, no hand-rolled parsing.** Terraform/OpenTofu are invoked via their official Go libraries (`terraform-exec`/`tofu-exec`), and plan output is parsed with HashiCorp's own `terraform-json`.
 - **Sensitive values are redacted before they're ever stored**, not just before they're displayed — see the screenshot above.
@@ -95,6 +95,7 @@ groundtruth delegates detection to `terraform plan -refresh-only`. That keeps it
 - **Only resources Terraform manages.** A resource created by hand in a console and never imported isn't drift to Terraform, so it never shows up. (This is what driftctl's API scan covered and groundtruth deliberately doesn't. As a consequence the `added` count is always 0.)
 - **State against reality, not code against reality.** An unapplied change to your `.tf` files isn't drift here; `terraform plan` is the tool for that.
 - **The provider decides what's reported, and how.** A provider only reports attributes it reads back, and some report an edited resource as deleted — that's why the screenshot above says `Deleted`. Read the real change from the before/after values.
+- **A check can overlap your `apply`.** It takes no state lock, so it neither blocks your pipeline nor is blocked by it, but a check that runs while an `apply` is mid-flight may report drift that is gone by the next check.
 - **Pin your provider versions.** Every check starts in a fresh directory, so without a committed `.terraform.lock.hcl`, `init` picks the newest provider versions your constraints allow, and a provider release can change what a check reports. Commit the lock file.
 - **Redaction follows Terraform's own markers.** A value the provider doesn't mark sensitive is shown in full, even if it holds a secret.
 
