@@ -29,6 +29,19 @@ func (c Config) DBPath() string {
 	return filepath.Join(c.DataDir, "groundtruth.db")
 }
 
+// CheckTmpDir holds the disposable per-check working directories the
+// executor creates and removes for every drift check.
+func (c Config) CheckTmpDir() string {
+	return filepath.Join(c.DataDir, "tmp")
+}
+
+// PluginCacheDir is shared and persistent across every check and
+// workspace, so provider plugins are downloaded once rather than on
+// every scheduled run.
+func (c Config) PluginCacheDir() string {
+	return filepath.Join(c.DataDir, "plugin-cache")
+}
+
 // SecureCookies reports whether the session cookie should be marked
 // Secure (HTTPS-only). True whenever BaseURL explicitly says https.
 func (c Config) SecureCookies() bool {

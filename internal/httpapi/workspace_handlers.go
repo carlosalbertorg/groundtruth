@@ -18,6 +18,7 @@ import (
 const (
 	defaultCheckIntervalMinutes = 60
 	defaultCheckTimeoutSeconds  = 600
+	maxCheckTimeoutSeconds      = 3600
 )
 
 type workspaceHandlers struct {
@@ -126,10 +127,25 @@ func normalizeWorkspaceRequest(req workspaceRequest) (normalizedWorkspace, strin
 	if sourcePath == "" {
 		return normalizedWorkspace{}, "source_path_required"
 	}
+	// Must be absolute: this is a path inside the groundtruth
+	// container/host that the operator mounted, not something resolved
+	// relative to wherever the server process happens to be running.
+	// Checked against POSIX ("/"-rooted) semantics specifically, not
+	// path/filepath's OS-dependent IsAbs: groundtruth's only supported
+	// deployment target is a Linux container, regardless of what OS
+	// happens to build or run this particular binary (e.g. in tests).
+	if !strings.HasPrefix(sourcePath, "/") {
+		return normalizedWorkspace{}, "source_path_must_be_absolute"
+	}
 
 	binaryKind := strings.TrimSpace(req.BinaryKind)
 	if binaryKind != "terraform" && binaryKind != "tofu" {
 		return normalizedWorkspace{}, "invalid_binary_kind"
+	}
+
+	workingSubdirectory := trimmedOrNil(req.WorkingSubdirectory)
+	if workingSubdirectory != nil && !isSafeRelativeSubdir(*workingSubdirectory) {
+		return normalizedWorkspace{}, "invalid_working_subdirectory"
 	}
 
 	interval := int64(defaultCheckIntervalMinutes)
@@ -144,7 +160,12 @@ func normalizeWorkspaceRequest(req workspaceRequest) (normalizedWorkspace, strin
 	if req.CheckTimeoutSeconds != nil {
 		timeout = *req.CheckTimeoutSeconds
 	}
-	if timeout <= 0 {
+	// Upper-bounded, not just positive: a workspace's timeout bounds how
+	// long the synchronous "check now" HTTP request can run for (there's
+	// no other ceiling on it - see router.go's note on why that route
+	// deliberately has no blanket request timeout). An operator mistyping
+	// a huge value shouldn't be able to tie up a request indefinitely.
+	if timeout <= 0 || timeout > maxCheckTimeoutSeconds {
 		return normalizedWorkspace{}, "invalid_check_timeout_seconds"
 	}
 
@@ -157,7 +178,7 @@ func normalizeWorkspaceRequest(req workspaceRequest) (normalizedWorkspace, strin
 		name:                 name,
 		description:          trimmedOrNil(req.Description),
 		sourcePath:           sourcePath,
-		workingSubdirectory:  trimmedOrNil(req.WorkingSubdirectory),
+		workingSubdirectory:  workingSubdirectory,
 		binaryKind:           binaryKind,
 		binaryVersion:        trimmedOrNil(req.BinaryVersion),
 		credentialEnvFile:    trimmedOrNil(req.CredentialEnvFile),
@@ -178,6 +199,28 @@ func trimmedOrNil(s *string) *string {
 		return nil
 	}
 	return &trimmed
+}
+
+// isSafeRelativeSubdir reports whether p is safe to use as
+// WorkingSubdirectory: relative, and not escaping upward via "..". The
+// executor joins this directly onto an isolated temp directory (see
+// internal/terraform/executor.go), so a value like "../../etc" must be
+// rejected here rather than trusted to fail harmlessly later.
+//
+// Checked with explicit "/"-segment splitting rather than path/filepath
+// (whose IsAbs/Separator are OS-dependent) for the same reason as the
+// source_path check above: this describes a path inside a Linux
+// container regardless of what OS runs this validation.
+func isSafeRelativeSubdir(p string) bool {
+	if strings.HasPrefix(p, "/") {
+		return false
+	}
+	for _, segment := range strings.Split(p, "/") {
+		if segment == ".." {
+			return false
+		}
+	}
+	return true
 }
 
 func (h *workspaceHandlers) list(w http.ResponseWriter, r *http.Request) {
