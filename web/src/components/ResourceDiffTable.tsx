@@ -28,8 +28,8 @@ export function ResourceDiffTable({ resource }: { resource: ResourceDrift }) {
 
   return (
     <div className="rounded-lg border border-neutral-800">
-      <div className="flex items-center justify-between border-b border-neutral-800 px-4 py-3">
-        <div>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-800 px-4 py-3">
+        <div className="min-w-0 break-all">
           <span className="font-mono text-sm text-neutral-100">{resource.address}</span>
           <span className="ml-2 text-xs text-neutral-500">{resource.type}</span>
         </div>
@@ -48,12 +48,12 @@ export function ResourceDiffTable({ resource }: { resource: ResourceDrift }) {
       {keys.length === 0 ? (
         <p className="px-4 py-3 text-sm text-neutral-500">No attribute detail.</p>
       ) : (
-        <table className="w-full text-left text-sm">
+        <table className="w-full table-fixed text-left text-sm">
           <thead className="text-neutral-500">
             <tr className="border-b border-neutral-800">
-              <th className="px-4 py-2 font-medium">Attribute</th>
-              <th className="px-4 py-2 font-medium">Before</th>
-              <th className="px-4 py-2 font-medium">After</th>
+              <th className="w-1/4 px-4 py-2 font-medium">Attribute</th>
+              <th className="w-[37.5%] px-4 py-2 font-medium">Before</th>
+              <th className="w-[37.5%] px-4 py-2 font-medium">After</th>
             </tr>
           </thead>
           <tbody>
@@ -61,14 +61,14 @@ export function ResourceDiffTable({ resource }: { resource: ResourceDrift }) {
               const changed = !valuesEqual(before[key], after[key])
               return (
                 <tr key={key} className="border-b border-neutral-900 last:border-0">
-                  <td className="px-4 py-2 font-mono text-xs text-neutral-400">{key}</td>
+                  <td className="px-4 py-2 font-mono text-xs break-all text-neutral-400">{key}</td>
                   <td
-                    className={`px-4 py-2 font-mono text-xs ${changed ? 'text-red-400/90' : 'text-neutral-500'}`}
+                    className={`px-4 py-2 font-mono text-xs break-all ${changed ? 'text-red-400/90' : 'text-neutral-500'}`}
                   >
                     {formatValue(before[key])}
                   </td>
                   <td
-                    className={`px-4 py-2 font-mono text-xs ${changed ? 'text-emerald-400/90' : 'text-neutral-500'}`}
+                    className={`px-4 py-2 font-mono text-xs break-all ${changed ? 'text-emerald-400/90' : 'text-neutral-500'}`}
                   >
                     {formatValue(after[key])}
                   </td>

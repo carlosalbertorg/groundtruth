@@ -21,21 +21,21 @@ export function WorkspacesPage({ email }: { email: string }) {
 
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-100">
-      <header className="flex items-center justify-between border-b border-neutral-800 px-8 py-4">
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-800 px-4 py-4 sm:px-8">
         <h1 className="text-lg font-semibold">groundtruth</h1>
-        <div className="flex items-center gap-4 text-sm text-neutral-400">
+        <div className="flex flex-wrap items-center gap-4 text-sm text-neutral-400">
           <Link to="/settings" className="hover:text-neutral-200">
             Settings
           </Link>
-          <span>{email}</span>
+          <span className="max-w-[12rem] truncate sm:max-w-none">{email}</span>
           <button onClick={() => logout.mutate()} className="hover:text-neutral-200">
             Sign out
           </button>
         </div>
       </header>
 
-      <main className="p-8">
-        <div className="flex items-center justify-between">
+      <main className="p-4 sm:p-8">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-base font-medium">Workspaces</h2>
           <button onClick={() => setDialogState({ open: true })} className="btn-primary">
             New workspace
@@ -54,27 +54,29 @@ export function WorkspacesPage({ email }: { email: string }) {
         )}
 
         {workspaces.data && workspaces.data.length > 0 && (
-          <table className="mt-6 w-full text-left text-sm">
-            <thead className="text-neutral-500">
-              <tr className="border-b border-neutral-800">
-                <th className="py-2 font-medium">Name</th>
-                <th className="py-2 font-medium">Binary</th>
-                <th className="py-2 font-medium">Interval</th>
-                <th className="py-2 font-medium">Status</th>
-                <th className="py-2 font-medium"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {workspaces.data.map((ws) => (
-                <WorkspaceRow
-                  key={ws.id}
-                  workspace={ws}
-                  onEdit={() => setDialogState({ open: true, workspace: ws })}
-                  onDelete={() => handleDelete(ws)}
-                />
-              ))}
-            </tbody>
-          </table>
+          <div className="mt-6 overflow-x-auto">
+            <table className="w-full min-w-[640px] text-left text-sm">
+              <thead className="text-neutral-500">
+                <tr className="border-b border-neutral-800">
+                  <th className="py-2 font-medium">Name</th>
+                  <th className="py-2 font-medium">Binary</th>
+                  <th className="py-2 font-medium">Interval</th>
+                  <th className="py-2 font-medium">Status</th>
+                  <th className="py-2 font-medium"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {workspaces.data.map((ws) => (
+                  <WorkspaceRow
+                    key={ws.id}
+                    workspace={ws}
+                    onEdit={() => setDialogState({ open: true, workspace: ws })}
+                    onDelete={() => handleDelete(ws)}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </main>
 

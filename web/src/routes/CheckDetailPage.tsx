@@ -9,7 +9,7 @@ export function CheckDetailPage() {
 
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-100">
-      <header className="border-b border-neutral-800 px-8 py-4">
+      <header className="border-b border-neutral-800 px-4 py-4 sm:px-8">
         {check.data ? (
           <Link
             to={`/workspaces/${check.data.workspace_id}`}
@@ -24,13 +24,13 @@ export function CheckDetailPage() {
         )}
       </header>
 
-      <main className="p-8">
+      <main className="p-4 sm:p-8">
         {check.isPending && <p className="text-sm text-neutral-400">Loading…</p>}
         {check.isError && <p className="text-sm text-red-400">Couldn&rsquo;t load this check.</p>}
 
         {check.data && (
           <>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <h1 className="text-lg font-semibold">
                 {new Date(check.data.started_at).toLocaleString()}
               </h1>
