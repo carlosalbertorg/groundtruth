@@ -6,7 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	tfjson "github.com/hashicorp/terraform-json"
 )
@@ -291,6 +293,140 @@ func TestRunCheckRejectsSourceContainingScratchDirectory(t *testing.T) {
 	}
 	if clientBuilt {
 		t.Error("a client was built despite the rejected source path")
+	}
+}
+
+func TestRunCheckLetsInitReuseTheSharedPluginCache(t *testing.T) {
+	source := t.TempDir()
+	writeFile(t, filepath.Join(source, "main.tf"), "resource")
+
+	e, captured := newTestExecutor(t, &fakeClient{plan: &tfjson.Plan{}})
+	if _, err := e.RunCheck(context.Background(), CheckInput{SourcePath: source, BinaryKind: "terraform"}); err != nil {
+		t.Fatalf("RunCheck: %v", err)
+	}
+
+	if captured.env["TF_PLUGIN_CACHE_DIR"] != e.pluginCacheDir {
+		t.Errorf("TF_PLUGIN_CACHE_DIR = %q, want the executor's shared cache %q", captured.env["TF_PLUGIN_CACHE_DIR"], e.pluginCacheDir)
+	}
+	// Without this, init rewrites a cached provider binary another check may
+	// be executing ("text file busy"), failing concurrent checks at random.
+	if captured.env["TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE"] != "true" {
+		t.Errorf("TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE = %q, want true", captured.env["TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE"])
+	}
+}
+
+// initTrackingClient records how many Init calls overlap, and can hold one.
+type initTrackingClient struct {
+	running, peak atomic.Int32
+	hold          chan struct{} // if non-nil, Init blocks until it is closed
+	entered       chan struct{} // if non-nil, signalled when an Init starts
+}
+
+func (c *initTrackingClient) Init(ctx context.Context) error {
+	now := c.running.Add(1)
+	defer c.running.Add(-1)
+	for {
+		peak := c.peak.Load()
+		if now <= peak || c.peak.CompareAndSwap(peak, now) {
+			break
+		}
+	}
+	if c.entered != nil {
+		c.entered <- struct{}{}
+	}
+	if c.hold != nil {
+		select {
+		case <-c.hold:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	} else {
+		time.Sleep(30 * time.Millisecond) // long enough for concurrent callers to overlap if they could
+	}
+	return nil
+}
+
+func (c *initTrackingClient) PlanRefreshOnly(context.Context, string) error { return nil }
+
+func (c *initTrackingClient) ShowPlanFile(context.Context, string) (*tfjson.Plan, error) {
+	return &tfjson.Plan{}, nil
+}
+
+func newExecutorWithClient(t *testing.T, c client) *Executor {
+	t.Helper()
+	e, err := NewExecutor(t.TempDir(), t.TempDir())
+	if err != nil {
+		t.Fatalf("NewExecutor: %v", err)
+	}
+	e.newClient = func(string, string, map[string]string) (client, error) { return c, nil }
+	return e
+}
+
+func TestInitRunsOneCheckAtATime(t *testing.T) {
+	source := t.TempDir()
+	writeFile(t, filepath.Join(source, "main.tf"), "resource")
+	tracker := &initTrackingClient{}
+	e := newExecutorWithClient(t, tracker)
+
+	const checks = 6
+	errs := make(chan error, checks)
+	for range checks {
+		go func() {
+			_, err := e.RunCheck(context.Background(), CheckInput{SourcePath: source, BinaryKind: "terraform"})
+			errs <- err
+		}()
+	}
+	for range checks {
+		if err := <-errs; err != nil {
+			t.Errorf("RunCheck: %v", err)
+		}
+	}
+
+	// Two inits installing the same new provider at once collide.
+	if peak := tracker.peak.Load(); peak != 1 {
+		t.Errorf("up to %d inits ran at the same time, want 1", peak)
+	}
+}
+
+func TestACheckQueuedForInitGivesUpWhenCancelled(t *testing.T) {
+	source := t.TempDir()
+	writeFile(t, filepath.Join(source, "main.tf"), "resource")
+	tracker := &initTrackingClient{hold: make(chan struct{}), entered: make(chan struct{}, 2)}
+	e := newExecutorWithClient(t, tracker)
+
+	// The first check takes the init slot and holds it.
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := e.RunCheck(context.Background(), CheckInput{SourcePath: source, BinaryKind: "terraform"})
+		firstDone <- err
+	}()
+	<-tracker.entered
+
+	// A second one queues behind it, then is cancelled while still waiting.
+	ctx, cancel := context.WithCancel(context.Background())
+	secondDone := make(chan error, 1)
+	go func() {
+		_, err := e.RunCheck(ctx, CheckInput{SourcePath: source, BinaryKind: "terraform"})
+		secondDone <- err
+	}()
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-secondDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("queued check error = %v, want it to match context.Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a cancelled check kept waiting for the init slot")
+	}
+
+	close(tracker.hold)
+	if err := <-firstDone; err != nil {
+		t.Errorf("first RunCheck: %v", err)
+	}
+	if tracker.peak.Load() != 1 {
+		t.Errorf("peak concurrent inits = %d, want 1", tracker.peak.Load())
 	}
 }
 

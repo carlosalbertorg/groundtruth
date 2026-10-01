@@ -31,6 +31,9 @@ type Executor struct {
 	baseTmpDir     string
 	pluginCacheDir string
 
+	// initSem lets one check at a time run `init`; see initialize.
+	initSem chan struct{}
+
 	// newClient is swapped out in tests to avoid depending on a real
 	// terraform/tofu binary being on PATH.
 	newClient func(binaryKind, workDir string, env map[string]string) (client, error)
@@ -57,8 +60,29 @@ func NewExecutor(baseTmpDir, pluginCacheDir string) (*Executor, error) {
 	return &Executor{
 		baseTmpDir:     baseTmpDir,
 		pluginCacheDir: pluginCacheDir,
+		initSem:        make(chan struct{}, 1),
 		newClient:      newClient,
 	}, nil
+}
+
+// initialize runs `init` for one check, one check at a time across the
+// executor. A provider that isn't in the shared plugin cache yet is installed
+// by unpacking it into the cache, and two installs of the same provider at the
+// same moment - two checks meeting it for the first time - collide, failing one
+// of them at random. Once a provider is cached, every later init only links the
+// cached copy, so serializing costs next to nothing.
+//
+// A check waits for its turn under its own context, so one that times out or is
+// cancelled while queued gives up instead of holding its place in line.
+func (e *Executor) initialize(ctx context.Context, c client) error {
+	select {
+	case e.initSem <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-e.initSem }()
+
+	return c.Init(ctx)
 }
 
 // SweepStale removes check directories left behind by an earlier process
@@ -157,7 +181,7 @@ func (e *Executor) RunCheck(ctx context.Context, in CheckInput) (*tfjson.Plan, e
 		return nil, scrubError(err, creds)
 	}
 
-	if err := tfClient.Init(checkCtx); err != nil {
+	if err := e.initialize(checkCtx, tfClient); err != nil {
 		return nil, scrubError(fmt.Errorf("terraform init: %w", err), creds)
 	}
 
@@ -204,6 +228,15 @@ func (e *Executor) buildEnv(creds map[string]string) map[string]string {
 		// a drift check running every few minutes to make that call.
 		"CHECKPOINT_DISABLE":  "1",
 		"TF_PLUGIN_CACHE_DIR": e.pluginCacheDir,
+		// Use a provider that's already in the shared cache even when the
+		// module's lock file doesn't vouch for it. Without this, every `init`
+		// of a module with no (or an incomplete) lock file downloads the
+		// provider again and overwrites its binary in the cache - which fails
+		// with "text file busy" whenever another check is executing that very
+		// binary, so concurrent checks of workspaces sharing a provider fail
+		// at random. A cached package was verified against the registry when it
+		// was first downloaded, and the cache is owner-only.
+		"TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE": "true",
 	}
 	for k, v := range creds {
 		env[k] = v
