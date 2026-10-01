@@ -26,3 +26,22 @@ type User struct {
 	CreatedAt    time.Time    `db:"created_at" json:"created_at"`
 	LastLoginAt  sql.NullTime `db:"last_login_at" json:"last_login_at"`
 }
+
+type Workspace struct {
+	ID                   string         `db:"id" json:"id"`
+	Name                 string         `db:"name" json:"name"`
+	Description          sql.NullString `db:"description" json:"description"`
+	SourcePath           string         `db:"source_path" json:"source_path"`
+	WorkingSubdirectory  sql.NullString `db:"working_subdirectory" json:"working_subdirectory"`
+	BinaryKind           string         `db:"binary_kind" json:"binary_kind"`
+	BinaryVersion        sql.NullString `db:"binary_version" json:"binary_version"`
+	CredentialEnvFile    sql.NullString `db:"credential_env_file" json:"credential_env_file"`
+	CheckIntervalMinutes int64          `db:"check_interval_minutes" json:"check_interval_minutes"`
+	CheckTimeoutSeconds  int64          `db:"check_timeout_seconds" json:"check_timeout_seconds"`
+	IsEnabled            bool           `db:"is_enabled" json:"is_enabled"`
+	LastCheckID          sql.NullString `db:"last_check_id" json:"last_check_id"`
+	LastCheckStatus      sql.NullString `db:"last_check_status" json:"last_check_status"`
+	CreatedBy            sql.NullString `db:"created_by" json:"created_by"`
+	CreatedAt            time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt            time.Time      `db:"updated_at" json:"updated_at"`
+}
