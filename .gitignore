@@ -1,0 +1,34 @@
+# Go
+/groundtruth
+/groundtruth.exe
+*.exe
+*.test
+coverage.out
+coverage.html
+
+# Frontend
+/web/node_modules/
+/web/dist/
+/web/coverage/
+
+# Embedded frontend build output (copied from web/dist by `make build-frontend`).
+# A placeholder index.html is committed so `go build`/`go vet`/embed always
+# have at least one real file to embed, even before the frontend is built.
+/internal/webassets/dist/*
+!/internal/webassets/dist/index.html
+
+# Local env / secrets
+.env
+.env.*
+!.env.example
+*.local
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Scratch
+/tmp/
