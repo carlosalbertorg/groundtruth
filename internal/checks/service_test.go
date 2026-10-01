@@ -154,7 +154,9 @@ func TestRunHistoryIsOrderedNewestFirst(t *testing.T) {
 			t.Fatalf("Run: %v", err)
 		}
 		ids = append(ids, result.Check.ID)
-		time.Sleep(time.Millisecond) // keep started_at strictly increasing
+		// Keep started_at strictly increasing: Windows' wall clock ticks at
+		// ~15ms, so anything shorter can still produce a tie.
+		time.Sleep(20 * time.Millisecond)
 	}
 
 	history, err := queries.ListDriftChecksForWorkspace(context.Background(), sqlc.ListDriftChecksForWorkspaceParams{

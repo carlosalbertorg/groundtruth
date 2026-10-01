@@ -3,6 +3,7 @@ package httpapi_test
 import (
 	"net/http"
 	"testing"
+	"time"
 )
 
 func TestCheckNowReturns404ForMissingWorkspace(t *testing.T) {
@@ -60,8 +61,12 @@ func TestCheckHistoryAndDetail(t *testing.T) {
 	})
 	wsID := ws["id"].(string)
 
-	// Run two checks so there's real history to list.
+	// Run two checks so there's real history to list. The pause keeps their
+	// started_at values distinct: both checks fail instantly (the source
+	// path doesn't exist), and on a platform with a coarse wall clock
+	// (Windows ticks at ~15ms) they'd otherwise tie and sort arbitrarily.
 	doJSON(t, r, http.MethodPost, "/api/workspaces/"+wsID+"/check", nil, cookie)
+	time.Sleep(20 * time.Millisecond)
 	rec := doJSON(t, r, http.MethodPost, "/api/workspaces/"+wsID+"/check", nil, cookie)
 	var second map[string]any
 	decodeBody(t, rec, &second)
