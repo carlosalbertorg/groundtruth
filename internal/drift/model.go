@@ -34,6 +34,13 @@ type ResourceDrift struct {
 }
 
 // Summary is an aggregate count across every resource in a Result.
+//
+// Added stays zero for a result built from a refresh-only plan, which is
+// the only kind groundtruth runs: Terraform's drift detection walks the
+// resources already in the state and reports each as updated or deleted,
+// never a new one. The field is kept so the API doesn't change shape if
+// that ever stops being true. See "Detection model and its limits" in
+// docs/ARCHITECTURE.md.
 type Summary struct {
 	Added     int `json:"added"`
 	Changed   int `json:"changed"`

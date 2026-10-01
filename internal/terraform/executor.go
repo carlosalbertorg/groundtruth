@@ -2,6 +2,7 @@ package terraform
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,6 +17,11 @@ import (
 // a last-resort guard against an unbounded check.
 const defaultTimeout = 10 * time.Minute
 
+// checkDirPrefix names every per-check scratch directory. SweepStale only
+// ever removes entries with this prefix, so it can't touch anything else
+// that happens to live in the same parent directory.
+const checkDirPrefix = "check-"
+
 // Executor runs isolated Terraform/OpenTofu drift checks: every call to
 // RunCheck gets its own disposable copy of the module source in a fresh
 // temp directory, which is removed once the check finishes - win or
@@ -24,6 +30,9 @@ const defaultTimeout = 10 * time.Minute
 type Executor struct {
 	baseTmpDir     string
 	pluginCacheDir string
+
+	// initSem lets one check at a time run `init`; see initialize.
+	initSem chan struct{}
 
 	// newClient is swapped out in tests to avoid depending on a real
 	// terraform/tofu binary being on PATH.
@@ -35,6 +44,12 @@ type Executor struct {
 // every check and workspace, so provider plugins are downloaded once
 // rather than on every scheduled run.
 func NewExecutor(baseTmpDir, pluginCacheDir string) (*Executor, error) {
+	// Absolute, so the "does the source contain our scratch space" check in
+	// RunCheck compares like with like whatever the working directory is.
+	baseTmpDir, err := filepath.Abs(baseTmpDir)
+	if err != nil {
+		return nil, fmt.Errorf("resolve base temp dir: %w", err)
+	}
 	if err := os.MkdirAll(baseTmpDir, 0o700); err != nil {
 		return nil, fmt.Errorf("create base temp dir: %w", err)
 	}
@@ -45,8 +60,59 @@ func NewExecutor(baseTmpDir, pluginCacheDir string) (*Executor, error) {
 	return &Executor{
 		baseTmpDir:     baseTmpDir,
 		pluginCacheDir: pluginCacheDir,
+		initSem:        make(chan struct{}, 1),
 		newClient:      newClient,
 	}, nil
+}
+
+// initialize runs `init` for one check, one check at a time across the
+// executor. A provider that isn't in the shared plugin cache yet is installed
+// by unpacking it into the cache, and two installs of the same provider at the
+// same moment - two checks meeting it for the first time - collide, failing one
+// of them at random. Once a provider is cached, every later init only links the
+// cached copy, so serializing costs next to nothing.
+//
+// A check waits for its turn under its own context, so one that times out or is
+// cancelled while queued gives up instead of holding its place in line.
+func (e *Executor) initialize(ctx context.Context, c client) error {
+	select {
+	case e.initSem <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-e.initSem }()
+
+	return c.Init(ctx)
+}
+
+// SweepStale removes check directories left behind by an earlier process
+// that was killed outright (SIGKILL, the OOM killer, a power cut) before
+// its deferred cleanup could run. Such a directory can hold a plan file
+// with unredacted sensitive values, so it must not be left to linger until
+// someone happens to notice it.
+//
+// Call it once at startup, before any check runs. It assumes this is the
+// only groundtruth process using baseTmpDir - the only supported
+// deployment - because run while another process had a check in flight, it
+// would delete that check's working directory out from under it.
+func (e *Executor) SweepStale() (removed int, err error) {
+	entries, err := os.ReadDir(e.baseTmpDir)
+	if err != nil {
+		return 0, fmt.Errorf("read check scratch dir: %w", err)
+	}
+
+	var errs []error
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), checkDirPrefix) {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(e.baseTmpDir, entry.Name())); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		removed++
+	}
+	return removed, errors.Join(errs...)
 }
 
 // CheckInput is everything RunCheck needs about the workspace being
@@ -64,8 +130,15 @@ type CheckInput struct {
 // in.SourcePath, returning the parsed plan. The plan this returns still
 // contains unredacted sensitive values - callers must run it through
 // internal/drift before persisting or returning it to a client.
+//
+// Any error it returns has had the credential file's values removed from
+// its text (see scrubSecrets), since that text is stored and shown.
 func (e *Executor) RunCheck(ctx context.Context, in CheckInput) (*tfjson.Plan, error) {
-	tmpDir, err := os.MkdirTemp(e.baseTmpDir, "check-*")
+	if err := e.rejectSelfCopy(in.SourcePath); err != nil {
+		return nil, err
+	}
+
+	tmpDir, err := os.MkdirTemp(e.baseTmpDir, checkDirPrefix+"*")
 	if err != nil {
 		return nil, fmt.Errorf("create isolated workdir: %w", err)
 	}
@@ -95,31 +168,50 @@ func (e *Executor) RunCheck(ctx context.Context, in CheckInput) (*tfjson.Plan, e
 	checkCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	env, err := e.buildEnv(in.CredentialEnvFile)
-	if err != nil {
-		return nil, fmt.Errorf("build environment: %w", err)
+	var creds map[string]string
+	if in.CredentialEnvFile != "" {
+		creds, err = readCredentialEnvFile(in.CredentialEnvFile)
+		if err != nil {
+			return nil, fmt.Errorf("build environment: read credential env file: %w", err)
+		}
 	}
 
-	tfClient, err := e.newClient(in.BinaryKind, workDir, env)
+	tfClient, err := e.newClient(in.BinaryKind, workDir, e.buildEnv(creds))
 	if err != nil {
-		return nil, err
+		return nil, scrubError(err, creds)
 	}
 
-	if err := tfClient.Init(checkCtx); err != nil {
-		return nil, fmt.Errorf("terraform init: %w", err)
+	if err := e.initialize(checkCtx, tfClient); err != nil {
+		return nil, scrubError(fmt.Errorf("terraform init: %w", err), creds)
 	}
 
 	planPath := filepath.Join(workDir, "plan.out")
 	if err := tfClient.PlanRefreshOnly(checkCtx, planPath); err != nil {
-		return nil, fmt.Errorf("terraform plan: %w", err)
+		return nil, scrubError(fmt.Errorf("terraform plan: %w", err), creds)
 	}
 
 	plan, err := tfClient.ShowPlanFile(checkCtx, planPath)
 	if err != nil {
-		return nil, fmt.Errorf("terraform show: %w", err)
+		return nil, scrubError(fmt.Errorf("terraform show: %w", err), creds)
 	}
 
 	return plan, nil
+}
+
+// rejectSelfCopy refuses a source path that contains this executor's own
+// scratch directory. Copying such a source would walk into the very
+// directory being populated and never terminate, growing until the disk is
+// full. It's what happens when a workspace is pointed at "/" or at the
+// data directory itself instead of at a module.
+func (e *Executor) rejectSelfCopy(sourcePath string) error {
+	src, err := filepath.Abs(sourcePath)
+	if err != nil {
+		return fmt.Errorf("resolve source path: %w", err)
+	}
+	if isWithin(src, e.baseTmpDir) {
+		return fmt.Errorf("source path %q contains groundtruth's own scratch directory (%s): point the workspace at the module itself, not at a parent of the data directory", sourcePath, e.baseTmpDir)
+	}
+	return nil
 }
 
 // buildEnv is the *complete* subprocess environment - see
@@ -128,7 +220,7 @@ func (e *Executor) RunCheck(ctx context.Context, in CheckInput) (*tfjson.Plan, e
 // Deliberately excludes TF_IN_AUTOMATION/TF_INPUT: both libraries already
 // force non-interactive behavior themselves and reject attempts to set
 // those two manually.
-func (e *Executor) buildEnv(credentialEnvFile string) (map[string]string, error) {
+func (e *Executor) buildEnv(creds map[string]string) map[string]string {
 	env := map[string]string{
 		"PATH": os.Getenv("PATH"),
 		"HOME": os.Getenv("HOME"),
@@ -136,19 +228,20 @@ func (e *Executor) buildEnv(credentialEnvFile string) (map[string]string, error)
 		// a drift check running every few minutes to make that call.
 		"CHECKPOINT_DISABLE":  "1",
 		"TF_PLUGIN_CACHE_DIR": e.pluginCacheDir,
+		// Use a provider that's already in the shared cache even when the
+		// module's lock file doesn't vouch for it. Without this, every `init`
+		// of a module with no (or an incomplete) lock file downloads the
+		// provider again and overwrites its binary in the cache - which fails
+		// with "text file busy" whenever another check is executing that very
+		// binary, so concurrent checks of workspaces sharing a provider fail
+		// at random. A cached package was verified against the registry when it
+		// was first downloaded, and the cache is owner-only.
+		"TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE": "true",
 	}
-
-	if credentialEnvFile != "" {
-		creds, err := readCredentialEnvFile(credentialEnvFile)
-		if err != nil {
-			return nil, fmt.Errorf("read credential env file: %w", err)
-		}
-		for k, v := range creds {
-			env[k] = v
-		}
+	for k, v := range creds {
+		env[k] = v
 	}
-
-	return env, nil
+	return env
 }
 
 // isWithin reports whether target is base itself or a descendant of it.

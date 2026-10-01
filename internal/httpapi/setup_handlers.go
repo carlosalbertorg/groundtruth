@@ -61,6 +61,12 @@ func (h *setupHandlers) createAdmin(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, "password_too_short")
 		return
 	}
+	// bcrypt can't hash more than 72 bytes. Without this check, a long
+	// passphrase would surface as an opaque 500 from HashPassword below.
+	if len(req.Password) > auth.MaxPasswordBytes {
+		writeJSONError(w, http.StatusBadRequest, "password_too_long")
+		return
+	}
 
 	passwordHash, err := auth.HashPassword(req.Password)
 	if err != nil {

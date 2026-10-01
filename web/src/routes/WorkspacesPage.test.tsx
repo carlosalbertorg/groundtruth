@@ -74,6 +74,52 @@ describe('WorkspacesPage', () => {
     expect(screen.getByText('every 60m')).toBeInTheDocument()
   })
 
+  it('explains why a check could not be started instead of failing silently', async () => {
+    const workspace = {
+      id: '1',
+      name: 'prod-network',
+      description: null,
+      source_path: '/modules/prod-network',
+      working_subdirectory: null,
+      binary_kind: 'terraform',
+      binary_version: null,
+      credential_env_file: null,
+      check_interval_minutes: 60,
+      check_timeout_seconds: 600,
+      is_enabled: true,
+      last_check_id: null,
+      last_check_status: null,
+      created_at: '2026-01-01T00:00:00Z',
+      updated_at: '2026-01-01T00:00:00Z',
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method === 'POST') {
+          return { ok: false, status: 409, json: async () => ({ error: 'check_in_progress' }) }
+        }
+        return { ok: true, status: 200, json: async () => [workspace] }
+      }),
+    )
+    const user = userEvent.setup()
+
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: 'Check now' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/already running/i)
+  })
+
+  it('says the binary version field is informational, not enforced', async () => {
+    vi.stubGlobal('fetch', mockFetchJSON([]))
+    const user = userEvent.setup()
+
+    renderPage()
+    await screen.findByText(/no workspaces yet/i)
+    await user.click(screen.getByRole('button', { name: 'New workspace' }))
+
+    expect(screen.getByText(/not enforced/i)).toBeInTheDocument()
+  })
+
   it('opens and closes the new workspace dialog', async () => {
     vi.stubGlobal('fetch', mockFetchJSON([]))
     const user = userEvent.setup()

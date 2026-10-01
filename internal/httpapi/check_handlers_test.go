@@ -3,6 +3,7 @@ package httpapi_test
 import (
 	"net/http"
 	"testing"
+	"time"
 )
 
 func TestCheckNowReturns404ForMissingWorkspace(t *testing.T) {
@@ -41,6 +42,38 @@ func TestCheckNowPersistsAFailedCheckWhenSourcePathDoesNotExist(t *testing.T) {
 	}
 }
 
+func TestCheckNowRecordsWhoTriggeredIt(t *testing.T) {
+	r := newTestRouter(t)
+	cookie := loginAsNewAdmin(t, r)
+	ws := createTestWorkspace(t, r, cookie, map[string]any{
+		"source_path": "/this/path/does/not/exist/anywhere",
+	})
+	checkURL := "/api/workspaces/" + ws["id"].(string) + "/check"
+
+	// From the dashboard: a session cookie.
+	rec := doJSON(t, r, http.MethodPost, checkURL, nil, cookie)
+	var viaSession map[string]any
+	decodeBody(t, rec, &viaSession)
+	if viaSession["triggered_by"] != "manual" {
+		t.Errorf("triggered_by via the dashboard = %v, want manual", viaSession["triggered_by"])
+	}
+
+	// From CI: an API token, as in the README's example.
+	rec = doJSON(t, r, http.MethodPost, "/api/api-tokens", map[string]string{"name": "ci"}, cookie)
+	var token map[string]string
+	decodeBody(t, rec, &token)
+
+	rec = doBearer(t, r, http.MethodPost, checkURL, token["token"])
+	if rec.Code != http.StatusOK {
+		t.Fatalf("check via API token: status = %d, body = %s", rec.Code, rec.Body)
+	}
+	var viaToken map[string]any
+	decodeBody(t, rec, &viaToken)
+	if viaToken["triggered_by"] != "api" {
+		t.Errorf("triggered_by via an API token = %v, want api", viaToken["triggered_by"])
+	}
+}
+
 func TestCheckNowRequiresSession(t *testing.T) {
 	r := newTestRouter(t)
 	loginAsNewAdmin(t, r) // complete setup, but don't attach the cookie below
@@ -60,8 +93,12 @@ func TestCheckHistoryAndDetail(t *testing.T) {
 	})
 	wsID := ws["id"].(string)
 
-	// Run two checks so there's real history to list.
+	// Run two checks so there's real history to list. The pause keeps their
+	// started_at values distinct: both checks fail instantly (the source
+	// path doesn't exist), and on a platform with a coarse wall clock
+	// (Windows ticks at ~15ms) they'd otherwise tie and sort arbitrarily.
 	doJSON(t, r, http.MethodPost, "/api/workspaces/"+wsID+"/check", nil, cookie)
+	time.Sleep(20 * time.Millisecond)
 	rec := doJSON(t, r, http.MethodPost, "/api/workspaces/"+wsID+"/check", nil, cookie)
 	var second map[string]any
 	decodeBody(t, rec, &second)

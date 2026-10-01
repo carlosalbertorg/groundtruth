@@ -1,9 +1,12 @@
 package scheduler
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"errors"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -25,7 +28,9 @@ func (f *fakeLister) ListEnabledWorkspacesWithLastCheck(context.Context) ([]sqlc
 // gate is non-nil, blocks until the test sends on it - letting tests
 // hold a check "in flight" to observe concurrency behavior.
 type fakeRunner struct {
-	gate chan struct{}
+	gate  chan struct{}
+	err   error  // returned from every Run, if set
+	onRun func() // called at the start of every Run, if set
 
 	mu        sync.Mutex
 	calledFor []string
@@ -38,6 +43,10 @@ func (f *fakeRunner) Run(ctx context.Context, ws sqlc.Workspace, _ string) (chec
 	f.mu.Lock()
 	f.calledFor = append(f.calledFor, ws.ID)
 	f.mu.Unlock()
+
+	if f.onRun != nil {
+		f.onRun()
+	}
 
 	cur := f.concurrent.Add(1)
 	defer f.concurrent.Add(-1)
@@ -54,7 +63,7 @@ func (f *fakeRunner) Run(ctx context.Context, ws sqlc.Workspace, _ string) (chec
 		case <-ctx.Done():
 		}
 	}
-	return checks.Result{Check: sqlc.DriftCheck{ID: "x", WorkspaceID: ws.ID}}, nil
+	return checks.Result{Check: sqlc.DriftCheck{ID: "x", WorkspaceID: ws.ID}}, f.err
 }
 
 func (f *fakeRunner) calls() []string {
@@ -141,6 +150,72 @@ func TestTickSkipsAWorkspaceAlreadyRunning(t *testing.T) {
 
 	if len(runner.calls()) != 0 {
 		t.Errorf("calls = %v, want none (workspace was already running)", runner.calls())
+	}
+}
+
+// logsFromOneTick runs a single tick against one due workspace whose runner
+// returns runErr, and returns everything the scheduler logged.
+func logsFromOneTick(t *testing.T, runErr error) string {
+	t.Helper()
+
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	var logs bytes.Buffer
+	runner := &fakeRunner{err: runErr}
+	s := newTestScheduler(&fakeLister{rows: []sqlc.ListEnabledWorkspacesWithLastCheckRow{
+		workspaceRow("due", nil, 60),
+	}}, runner, now, 10)
+	s.logger = slog.New(slog.NewTextHandler(&logs, nil))
+
+	state := newRunState(10)
+	s.tick(context.Background(), state)
+	state.wg.Wait()
+
+	if len(runner.calls()) != 1 {
+		t.Fatalf("calls = %v, want exactly 1", runner.calls())
+	}
+	return logs.String()
+}
+
+func TestTickDoesNotReportAnInProgressCheckAsAnError(t *testing.T) {
+	// A manual or API-triggered check got to the workspace first: skipping
+	// is the right outcome, and not something to page anyone about.
+	if out := logsFromOneTick(t, checks.ErrCheckInProgress); strings.Contains(out, "level=ERROR") {
+		t.Errorf("an in-progress check was logged as an error:\n%s", out)
+	}
+}
+
+func TestTickDoesNotReportACheckInterruptedByShutdownAsAnError(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Shutdown arrives while the check runs: the check is cancelled, and
+	// recording its outcome then fails too. Expected on every stop with a check
+	// in flight, so it must not show up as an error.
+	var logs bytes.Buffer
+	runner := &fakeRunner{err: errors.New("persist drift check: context canceled"), onRun: cancel}
+	s := newTestScheduler(&fakeLister{rows: []sqlc.ListEnabledWorkspacesWithLastCheckRow{
+		workspaceRow("due", nil, 60),
+	}}, runner, now, 10)
+	s.logger = slog.New(slog.NewTextHandler(&logs, nil))
+
+	state := newRunState(10)
+	s.tick(ctx, state)
+	state.wg.Wait()
+
+	out := logs.String()
+	if strings.Contains(out, "level=ERROR") {
+		t.Errorf("a check interrupted by shutdown was logged as an error:\n%s", out)
+	}
+	if !strings.Contains(out, "interrupted by shutdown") {
+		t.Errorf("the interruption was not logged at all:\n%s", out)
+	}
+}
+
+func TestTickStillReportsARealRunFailureAsAnError(t *testing.T) {
+	// The control for the test above: a genuine failure must still surface.
+	if out := logsFromOneTick(t, errors.New("database is locked")); !strings.Contains(out, "level=ERROR") {
+		t.Errorf("a real failure was not logged as an error:\n%s", out)
 	}
 }
 

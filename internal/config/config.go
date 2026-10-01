@@ -14,14 +14,16 @@ type Config struct {
 	// Addr is the address the HTTP server listens on, e.g. ":8080".
 	Addr string
 
-	// DataDir holds groundtruth's SQLite database file.
+	// DataDir holds everything groundtruth persists: its SQLite database,
+	// the shared provider plugin cache, and per-check scratch space. It's
+	// created owner-only (see store.RestrictAccess).
 	DataDir string
 
 	// BaseURL is the externally-visible URL groundtruth is reached at
-	// (e.g. "https://groundtruth.example.com"), used only to decide
-	// whether the session cookie should be marked Secure. Unset means
-	// "assume plain HTTP," so local development works without any
-	// configuration.
+	// (e.g. "https://groundtruth.example.com"). It decides whether the
+	// session cookie is marked Secure, and is the base of the dashboard
+	// link in alert payloads. Unset means "assume plain HTTP," so local
+	// development works without any configuration.
 	BaseURL string
 
 	// MaxConcurrentChecks bounds how many drift checks the scheduler

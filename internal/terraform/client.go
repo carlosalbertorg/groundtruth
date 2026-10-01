@@ -6,9 +6,25 @@ package terraform
 
 import (
 	"context"
+	"time"
 
 	tfjson "github.com/hashicorp/terraform-json"
 )
+
+// killGrace bounds how long Terraform gets to shut down once a check's
+// context is cancelled (the check timed out, or groundtruth is stopping).
+//
+// terraform-exec asks Terraform to stop with SIGINT, and Terraform then waits
+// for whatever its providers are doing to finish; terraform-exec's default is
+// to wait up to a minute before killing it. A provider stuck in a slow API
+// call would therefore hold a check - and, at shutdown, the whole process -
+// well past its limit. A check is disposable and takes no state lock (see
+// PlanRefreshOnly), so there is nothing a graceful stop would protect: after
+// this grace the process is killed. (tofu-exec has no graceful stage and
+// kills at once.)
+//
+// A variable only so tests can shorten it.
+var killGrace = 5 * time.Second
 
 // client is the minimal surface this package needs from either
 // hashicorp/terraform-exec or opentofu/tofu-exec.

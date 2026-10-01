@@ -148,6 +148,15 @@ func normalizeWorkspaceRequest(req workspaceRequest) (normalizedWorkspace, strin
 		return normalizedWorkspace{}, "invalid_working_subdirectory"
 	}
 
+	// Same reasoning as source_path: this is a path inside the container
+	// where the operator mounted the file. A relative one would resolve
+	// against whatever directory the server process happens to run in -
+	// the wrong place to go looking for a credentials file.
+	credentialEnvFile := trimmedOrNil(req.CredentialEnvFile)
+	if credentialEnvFile != nil && !strings.HasPrefix(*credentialEnvFile, "/") {
+		return normalizedWorkspace{}, "credential_env_file_must_be_absolute"
+	}
+
 	interval := int64(defaultCheckIntervalMinutes)
 	if req.CheckIntervalMinutes != nil {
 		interval = *req.CheckIntervalMinutes
@@ -181,7 +190,7 @@ func normalizeWorkspaceRequest(req workspaceRequest) (normalizedWorkspace, strin
 		workingSubdirectory:  workingSubdirectory,
 		binaryKind:           binaryKind,
 		binaryVersion:        trimmedOrNil(req.BinaryVersion),
-		credentialEnvFile:    trimmedOrNil(req.CredentialEnvFile),
+		credentialEnvFile:    credentialEnvFile,
 		checkIntervalMinutes: interval,
 		checkTimeoutSeconds:  timeout,
 		isEnabled:            isEnabled,

@@ -14,6 +14,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -44,8 +45,14 @@ type httpDoer interface {
 // attempt. Delivery is synchronous (called inline from
 // internal/checks.Service, right after a check is persisted): simpler to
 // reason about and test than fire-and-forget, and checks already run
-// minutes apart, so a few extra seconds for webhook delivery is an
+// minutes apart, so a little extra time for webhook delivery is an
 // acceptable trade-off for v1.
+//
+// "A little" is bounded, not guaranteed to be small: a healthy destination
+// answers in milliseconds, but one that is down costs up to maxAttempts x
+// attemptTimeout plus the backoffs between attempts - about 36 seconds.
+// Destinations are attempted in parallel, so that worst case doesn't grow
+// with how many are configured.
 type Dispatcher struct {
 	queries *sqlc.Queries
 	client  httpDoer
@@ -63,8 +70,18 @@ type Dispatcher struct {
 // outgoing payloads; leave it empty if unset.
 func NewDispatcher(queries *sqlc.Queries, logger *slog.Logger, baseURL string) *Dispatcher {
 	return &Dispatcher{
-		queries:      queries,
-		client:       &http.Client{Timeout: attemptTimeout},
+		queries: queries,
+		client: &http.Client{
+			Timeout: attemptTimeout,
+			// Never follow a redirect. On a 301/302/303 Go re-sends a POST
+			// as a body-less GET, and the 200 it finally gets would be
+			// logged as a successful delivery of an alert the receiver
+			// never received (typically a http:// URL that redirects to
+			// https://). Returning the redirect itself makes it a failed
+			// attempt, so a wrong URL is noticed rather than silently
+			// swallowing every alert.
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		},
 		logger:       logger,
 		baseURL:      baseURL,
 		retryBackoff: 2 * time.Second,
@@ -87,9 +104,25 @@ func (d *Dispatcher) Notify(ctx context.Context, ws sqlc.Workspace, check sqlc.D
 		return
 	}
 
+	// In parallel, so one unreachable destination (which burns its full
+	// retry budget) doesn't delay the others, or the check that's waiting
+	// on this call.
+	var wg sync.WaitGroup
 	for _, dest := range destinations {
-		d.send(ctx, dest, ws, check, event)
+		wg.Go(func() {
+			// A "check now" request is protected by the HTTP server's panic
+			// recovery, but a goroutine started here is not: without this, a
+			// bug while delivering one alert would take the whole process
+			// down instead of failing just that delivery.
+			defer func() {
+				if r := recover(); r != nil {
+					d.logger.Error("alerting: panic while delivering", "destination_id", dest.ID, "panic", r)
+				}
+			}()
+			d.send(ctx, dest, ws, check, event)
+		})
 	}
+	wg.Wait()
 }
 
 func (d *Dispatcher) send(ctx context.Context, dest sqlc.AlertDestination, ws sqlc.Workspace, check sqlc.DriftCheck, event string) {
@@ -105,8 +138,11 @@ func (d *Dispatcher) send(ctx context.Context, dest sqlc.AlertDestination, ws sq
 		attempt     int
 	)
 	for attempt = 0; attempt < maxAttempts; attempt++ {
-		if attempt > 0 {
-			time.Sleep(time.Duration(attempt) * d.retryBackoff)
+		if attempt > 0 && !sleepContext(ctx, time.Duration(attempt)*d.retryBackoff) {
+			// Shutting down (or the caller gave up): stop retrying, but fall
+			// through to record the failure rather than dropping it.
+			lastSnippet = "delivery abandoned: " + ctx.Err().Error()
+			break
 		}
 
 		status, snippet, err := d.attempt(ctx, dest, body, contentType)
@@ -147,8 +183,24 @@ func (d *Dispatcher) attempt(ctx context.Context, dest sqlc.AlertDestination, bo
 	return resp.StatusCode, snippet, nil
 }
 
+// sleepContext waits for d, or until ctx is done, and reports whether the
+// full wait elapsed.
+func sleepContext(ctx context.Context, d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
 func (d *Dispatcher) logAttempt(ctx context.Context, dest sqlc.AlertDestination, ws sqlc.Workspace, check sqlc.DriftCheck, event string, success bool, status int, snippet string, retryCount int) {
-	err := d.queries.CreateAlertLogEntry(ctx, sqlc.CreateAlertLogEntryParams{
+	// Detached from ctx's cancellation: an alert abandoned because the
+	// process is shutting down is exactly the delivery that most needs its
+	// failure on record.
+	err := d.queries.CreateAlertLogEntry(context.WithoutCancel(ctx), sqlc.CreateAlertLogEntryParams{
 		ID:              uuid.NewString(),
 		DestinationID:   dest.ID,
 		WorkspaceID:     ws.ID,
