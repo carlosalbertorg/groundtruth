@@ -37,7 +37,10 @@ func (c *tofuClient) Init(ctx context.Context) error {
 }
 
 func (c *tofuClient) PlanRefreshOnly(ctx context.Context, outPath string) error {
-	_, err := c.tf.Plan(ctx, tfexec.Out(outPath), tfexec.RefreshOnly(true))
+	// Lock(false) for the same reason as terraformClient.PlanRefreshOnly. It
+	// matters even more here: tofu-exec kills the process the moment a check's
+	// context is cancelled, which with a lock held leaves it stale.
+	_, err := c.tf.Plan(ctx, tfexec.Out(outPath), tfexec.RefreshOnly(true), tfexec.Lock(false))
 	return err
 }
 

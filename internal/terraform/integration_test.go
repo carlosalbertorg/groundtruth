@@ -80,6 +80,83 @@ resource "local_file" "example" {
 	return sourceDir, managedFilePath
 }
 
+// An `apply` holds the backend's state lock for as long as it runs. A drift
+// check that overlaps one - a scheduled check meeting the operator's own
+// pipeline - must neither fail on that lock nor take a lock the apply would
+// then collide with: groundtruth only ever reads.
+func TestRealTerraformCheckIgnoresTheStateLockOfARunningApply(t *testing.T) {
+	execPath, err := exec.LookPath("terraform")
+	if err != nil {
+		t.Skip("terraform not found on PATH; skipping integration test")
+	}
+
+	sourceDir := t.TempDir()
+	stateDir := t.TempDir()
+	statePath := filepath.Join(stateDir, "terraform.tfstate")
+
+	// terraform_data is built in, so nothing is downloaded. Its provisioner
+	// keeps the apply - and with it the state lock - going for ten seconds.
+	config := fmt.Sprintf(`
+terraform {
+  backend "local" {
+    path = %q
+  }
+}
+
+resource "terraform_data" "hold" {
+  provisioner "local-exec" {
+    command = "sleep 10"
+  }
+}
+`, filepath.ToSlash(statePath))
+	if err := os.WriteFile(filepath.Join(sourceDir, "main.tf"), []byte(config), 0o600); err != nil {
+		t.Fatalf("write fixture module: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	tf, err := tfexec.NewTerraform(sourceDir, execPath)
+	if err != nil {
+		t.Fatalf("tfexec.NewTerraform: %v", err)
+	}
+	if err := tf.Init(ctx); err != nil {
+		t.Fatalf("terraform init: %v", err)
+	}
+
+	applyDone := make(chan error, 1)
+	go func() { applyDone <- tf.Apply(ctx) }()
+
+	// The local backend records a held lock in a *.lock.info file beside the
+	// state. Wait for it, so the check below really does overlap the apply.
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		if held, _ := filepath.Glob(filepath.Join(stateDir, "*.lock.info")); len(held) > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the apply never took the state lock")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	executor, err := terraform.NewExecutor(t.TempDir(), t.TempDir())
+	if err != nil {
+		t.Fatalf("NewExecutor: %v", err)
+	}
+	if _, err := executor.RunCheck(ctx, terraform.CheckInput{
+		SourcePath: sourceDir,
+		BinaryKind: "terraform",
+		Timeout:    90 * time.Second,
+	}); err != nil {
+		t.Fatalf("a check failed while an apply held the state lock - does it still take the lock itself? %v", err)
+	}
+
+	if err := <-applyDone; err != nil {
+		t.Fatalf("the apply failed: %v - did the check's lock collide with it?", err)
+	}
+}
+
 func TestRealTerraformPlanDetectsExternalDeletion(t *testing.T) {
 	sourceDir, managedFilePath := setUpRealWorkspace(t)
 

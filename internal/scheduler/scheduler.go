@@ -139,6 +139,12 @@ func (s *Scheduler) runOne(ctx context.Context, state *runState, row sqlc.ListEn
 			s.logger.Debug("scheduler: skipped, a check is already running", "workspace_id", ws.ID)
 			return
 		}
+		if ctx.Err() != nil {
+			// Shutting down: the check was cancelled, so recording its
+			// outcome fails too. Expected, and not worth an error line.
+			s.logger.Info("scheduler: check interrupted by shutdown", "workspace_id", ws.ID)
+			return
+		}
 		s.logger.Error("scheduler: check failed to persist", "workspace_id", ws.ID, "error", err)
 	}
 }

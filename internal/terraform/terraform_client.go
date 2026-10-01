@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"runtime"
 
 	"github.com/hashicorp/terraform-exec/tfexec"
 	tfjson "github.com/hashicorp/terraform-json"
@@ -26,6 +27,13 @@ func newTerraformClient(workDir string, env map[string]string) (client, error) {
 	if err := tf.SetEnv(env); err != nil {
 		return nil, fmt.Errorf("set terraform environment: %w", err)
 	}
+	// See killGrace. Not supported on Windows, where terraform-exec has no
+	// graceful cancellation to bound and kills the process at once anyway.
+	if runtime.GOOS != "windows" {
+		if err := tf.SetWaitDelay(killGrace); err != nil {
+			return nil, fmt.Errorf("set terraform wait delay: %w", err)
+		}
+	}
 
 	return &terraformClient{tf: tf}, nil
 }
@@ -44,7 +52,14 @@ func (c *terraformClient) Init(ctx context.Context) error {
 }
 
 func (c *terraformClient) PlanRefreshOnly(ctx context.Context, outPath string) error {
-	_, err := c.tf.Plan(ctx, tfexec.Out(outPath), tfexec.RefreshOnly(true))
+	// Lock(false): a check only reads. terraform-exec otherwise passes
+	// -lock=true, which writes a lock record to the backend for the whole
+	// check - so an `apply` from the operator's pipeline that overlaps one
+	// fails to get the lock, and a check killed on a timeout leaves a stale
+	// lock that blocks the pipeline until someone force-unlocks it. Reading
+	// without the lock can at worst see state halfway through an apply and
+	// report drift that the next check no longer sees.
+	_, err := c.tf.Plan(ctx, tfexec.Out(outPath), tfexec.RefreshOnly(true), tfexec.Lock(false))
 	return err
 }
 
