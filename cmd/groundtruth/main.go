@@ -12,9 +12,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/carlosalbertorg/groundtruth/internal/auth"
 	"github.com/carlosalbertorg/groundtruth/internal/buildinfo"
 	"github.com/carlosalbertorg/groundtruth/internal/config"
 	"github.com/carlosalbertorg/groundtruth/internal/httpapi"
+	"github.com/carlosalbertorg/groundtruth/internal/store"
+	"github.com/carlosalbertorg/groundtruth/internal/store/sqlc"
 	"github.com/carlosalbertorg/groundtruth/internal/webassets"
 )
 
@@ -30,21 +33,48 @@ func main() {
 func run(logger *slog.Logger) error {
 	cfg := config.Load()
 
+	if err := os.MkdirAll(cfg.DataDir, 0o750); err != nil {
+		return err
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	db, err := store.Open(ctx, cfg.DBPath())
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			logger.Error("closing database", "error", err)
+		}
+	}()
+
+	if err := store.Migrate(db); err != nil {
+		return err
+	}
+
+	queries := sqlc.New(db)
+
 	spa, err := webassets.Dist()
 	if err != nil {
 		return err
 	}
 
-	handler := httpapi.NewRouter(spa, logger)
+	handler := httpapi.NewRouter(httpapi.Deps{
+		SPA:           spa,
+		Logger:        logger,
+		Queries:       queries,
+		Sessions:      auth.NewSessionManager(queries),
+		SetupGate:     auth.NewSetupGate(queries),
+		SecureCookies: cfg.SecureCookies(),
+	})
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	serveErr := make(chan error, 1)
 	go func() {
