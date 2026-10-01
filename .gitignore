@@ -25,6 +25,24 @@ coverage.html
 .env.*
 !.env.example
 *.local
+*.env
+# The credentials file deploy/docker-compose.yml suggests mounting.
+credentials.env
+
+# groundtruth's own runtime state. The default GROUNDTRUTH_DATA_DIR is ./data,
+# and the SQLite database in it holds password and token hashes and
+# alert-destination secrets - running the binary from a checkout must never
+# leave something `git add .` would pick up.
+/data/
+*.db
+*.db-wal
+*.db-shm
+
+# Terraform state and modules that end up beside deploy/docker-compose.yml
+# when trying groundtruth out from a checkout.
+terraform.tfstate*
+.terraform/
+/deploy/modules/
 
 # Editor / OS
 .idea/

@@ -82,6 +82,50 @@ func TestAlertDestinationValidation(t *testing.T) {
 	}
 }
 
+func TestAlertDestinationRejectsURLsTheDispatcherCannotPost(t *testing.T) {
+	r := newTestRouter(t)
+	cookie := loginAsNewAdmin(t, r)
+
+	for _, badURL := range []string{
+		"not a url",
+		"/relative/path",
+		"ftp://example.com/hook",
+		"javascript:alert(1)",
+		"https://", // a scheme with no host
+		"example.com/hook",
+	} {
+		t.Run(badURL, func(t *testing.T) {
+			rec := doJSON(t, r, http.MethodPost, "/api/alert-destinations", map[string]any{
+				"name": "x", "kind": "generic_webhook", "url": badURL,
+			}, cookie)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusBadRequest, rec.Body)
+			}
+			var errResp struct {
+				Error string `json:"error"`
+			}
+			decodeBody(t, rec, &errResp)
+			if errResp.Error != "invalid_url" {
+				t.Errorf("error = %q, want invalid_url", errResp.Error)
+			}
+		})
+	}
+
+	// Updating an existing destination to a bad URL is rejected too.
+	rec := doJSON(t, r, http.MethodPost, "/api/alert-destinations", map[string]any{
+		"name": "ok", "kind": "slack", "url": "https://hooks.example.com/abc",
+	}, cookie)
+	var created map[string]any
+	decodeBody(t, rec, &created)
+
+	rec = doJSON(t, r, http.MethodPatch, "/api/alert-destinations/"+created["id"].(string), map[string]any{
+		"name": "ok", "kind": "slack", "url": "ftp://example.com/abc",
+	}, cookie)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("update with a bad URL: status = %d, want %d, body = %s", rec.Code, http.StatusBadRequest, rec.Body)
+	}
+}
+
 func TestAlertDestinationsRequireSession(t *testing.T) {
 	r := newTestRouter(t)
 	loginAsNewAdmin(t, r)

@@ -9,6 +9,23 @@ import {
   useUpdateAlertDestination,
 } from '../api/alertDestinations'
 import { useAPITokens, useCreateAPIToken, useRevokeAPIToken } from '../api/apiTokens'
+import { ApiError } from '../api/client'
+
+function describeDestinationError(err: unknown): string {
+  if (err instanceof ApiError) {
+    switch (err.code) {
+      case 'name_required':
+        return 'Name is required.'
+      case 'url_required':
+        return 'URL is required.'
+      case 'invalid_url':
+        return 'URL must be an absolute http:// or https:// address.'
+      case 'invalid_kind':
+        return 'Kind must be Generic webhook or Slack.'
+    }
+  }
+  return 'Something went wrong. Please try again.'
+}
 
 export function SettingsPage() {
   return (
@@ -186,6 +203,10 @@ function AlertDestinationsSection() {
               className="input"
             />
           </label>
+          <p className="-mt-1 text-xs text-neutral-500">
+            Signs each request (<code>X-Groundtruth-Signature</code>). It has to be stored as-is in
+            groundtruth&rsquo;s database to do that, and it is never shown again.
+          </p>
           <label className="flex items-center gap-2 text-sm text-neutral-300">
             <input
               type="checkbox"
@@ -195,7 +216,7 @@ function AlertDestinationsSection() {
             Enabled
           </label>
           {mutation.isError && (
-            <p className="text-sm text-red-400">Something went wrong. Please try again.</p>
+            <p className="text-sm text-red-400">{describeDestinationError(mutation.error)}</p>
           )}
           <div className="flex justify-end gap-2">
             <button

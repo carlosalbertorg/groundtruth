@@ -31,11 +31,16 @@ func newTofuClient(workDir string, env map[string]string) (client, error) {
 }
 
 func (c *tofuClient) Init(ctx context.Context) error {
+	// Same reasoning as terraformClient.Init: Upgrade(false) only holds the
+	// versions pinned by a committed .terraform.lock.hcl.
 	return c.tf.Init(ctx, tfexec.Upgrade(false))
 }
 
 func (c *tofuClient) PlanRefreshOnly(ctx context.Context, outPath string) error {
-	_, err := c.tf.Plan(ctx, tfexec.Out(outPath), tfexec.RefreshOnly(true))
+	// Lock(false) for the same reason as terraformClient.PlanRefreshOnly. It
+	// matters even more here: tofu-exec kills the process the moment a check's
+	// context is cancelled, which with a lock held leaves it stale.
+	_, err := c.tf.Plan(ctx, tfexec.Out(outPath), tfexec.RefreshOnly(true), tfexec.Lock(false))
 	return err
 }
 

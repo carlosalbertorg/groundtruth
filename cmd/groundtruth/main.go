@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -42,7 +43,7 @@ func main() {
 func run(logger *slog.Logger) error {
 	cfg := config.Load()
 
-	if err := os.MkdirAll(cfg.DataDir, 0o750); err != nil {
+	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
 		return err
 	}
 
@@ -59,6 +60,13 @@ func run(logger *slog.Logger) error {
 		}
 	}()
 
+	// Tightens a data directory or database created by an earlier version
+	// (which used looser modes). Best effort - a bind-mounted directory the
+	// process doesn't own can't be chmod'ed - so it warns instead of failing.
+	if err := store.RestrictAccess(cfg.DataDir, cfg.DBPath()); err != nil {
+		logger.Warn("could not restrict data directory permissions; check them manually", "error", err)
+	}
+
 	if err := store.Migrate(db); err != nil {
 		return err
 	}
@@ -68,6 +76,15 @@ func run(logger *slog.Logger) error {
 	executor, err := terraform.NewExecutor(cfg.CheckTmpDir(), cfg.PluginCacheDir())
 	if err != nil {
 		return err
+	}
+	// A check killed outright (SIGKILL, OOM) never ran its deferred cleanup,
+	// and its scratch directory can hold an unredacted plan file.
+	removed, err := executor.SweepStale()
+	if err != nil {
+		logger.Warn("could not remove every stale check directory; remove them manually", "dir", cfg.CheckTmpDir(), "error", err)
+	}
+	if removed > 0 {
+		logger.Info("removed check directories left behind by an earlier run", "count", removed)
 	}
 	checkService := checks.NewService(queries, executor)
 	checkService.SetNotifier(alerting.NewDispatcher(queries, logger, cfg.BaseURL))
@@ -89,9 +106,22 @@ func run(logger *slog.Logger) error {
 	})
 
 	srv := &http.Server{
-		Addr:              cfg.Addr,
-		Handler:           handler,
+		Addr:    cfg.Addr,
+		Handler: handler,
+		// Every request's context derives from ctx, so SIGTERM cancels a
+		// check running inside a "check now" request just as it cancels one
+		// started by the scheduler. Without it such a check would keep
+		// running through the shutdown grace period and then be cut off
+		// mid-flight, skipping its deferred cleanup of the scratch
+		// directory (which can hold an unredacted plan file).
+		BaseContext:       func(net.Listener) context.Context { return ctx },
 		ReadHeaderTimeout: 10 * time.Second,
+		// Bounds how long a client may take to send a request body, and how
+		// long an idle keep-alive connection is held open. There is
+		// deliberately no WriteTimeout: a "check now" request can legitimately
+		// run for as long as its workspace's check_timeout_seconds.
+		ReadTimeout: 60 * time.Second,
+		IdleTimeout: 120 * time.Second,
 	}
 
 	sched := scheduler.New(queries, checkService, logger, schedulerPollInterval, cfg.MaxConcurrentChecks)

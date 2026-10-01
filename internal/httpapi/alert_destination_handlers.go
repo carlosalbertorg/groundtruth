@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -98,6 +99,10 @@ func (h *alertDestinationHandlers) create(w http.ResponseWriter, r *http.Request
 		writeJSONError(w, http.StatusBadRequest, "invalid_kind")
 		return
 	}
+	if !isValidWebhookURL(url) {
+		writeJSONError(w, http.StatusBadRequest, "invalid_url")
+		return
+	}
 
 	isEnabled := true
 	if req.IsEnabled != nil {
@@ -155,6 +160,10 @@ func (h *alertDestinationHandlers) update(w http.ResponseWriter, r *http.Request
 		writeJSONError(w, http.StatusBadRequest, "invalid_kind")
 		return
 	}
+	if !isValidWebhookURL(url) {
+		writeJSONError(w, http.StatusBadRequest, "invalid_url")
+		return
+	}
 
 	isEnabled := existing.IsEnabled
 	if req.IsEnabled != nil {
@@ -197,6 +206,15 @@ func (h *alertDestinationHandlers) delete(w http.ResponseWriter, r *http.Request
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// isValidWebhookURL reports whether raw is an absolute http(s) URL with a
+// host - the only kind of destination the dispatcher can POST to. Anything
+// else would be accepted at save time and then fail silently, at the moment
+// an alert actually needs to go out.
+func isValidWebhookURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
 }
 
 // blankOrNilToNullString treats both a nil pointer and an explicit ""

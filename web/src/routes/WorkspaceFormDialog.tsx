@@ -74,12 +74,18 @@ function describeError(err: unknown): string {
       return 'Name is required.'
     case 'source_path_required':
       return 'Source path is required.'
+    case 'source_path_must_be_absolute':
+      return 'Source path must be an absolute path inside the container, starting with /.'
+    case 'invalid_working_subdirectory':
+      return 'Working subdirectory must be a relative path that stays inside the module.'
+    case 'credential_env_file_must_be_absolute':
+      return 'Credential env file must be an absolute path inside the container, starting with /.'
     case 'invalid_binary_kind':
       return 'Binary kind must be Terraform or OpenTofu.'
     case 'invalid_check_interval_minutes':
       return 'Check interval must be a positive number of minutes.'
     case 'invalid_check_timeout_seconds':
-      return 'Check timeout must be a positive number of seconds.'
+      return 'Check timeout must be between 1 and 3600 seconds.'
     case 'name_taken':
       return 'A workspace with this name already exists.'
     default:
@@ -153,7 +159,7 @@ export function WorkspaceFormDialog({
             required
             value={form.sourcePath}
             onChange={(v) => setForm({ ...form, sourcePath: v })}
-            hint="Path to the root module inside the groundtruth container, e.g. /data/modules/prod-network."
+            hint="Path to the root module inside the groundtruth container, e.g. /modules/prod-network."
           />
           <LabeledInput
             label="Working subdirectory"
@@ -181,13 +187,13 @@ export function WorkspaceFormDialog({
             label="Binary version"
             value={form.binaryVersion}
             onChange={(v) => setForm({ ...form, binaryVersion: v })}
-            hint="Optional. Leave blank to use whatever's on PATH."
+            hint="Optional note for your own reference — not enforced. groundtruth always runs the terraform/tofu binary installed in its image."
           />
           <LabeledInput
             label="Credential env file"
             value={form.credentialEnvFile}
             onChange={(v) => setForm({ ...form, credentialEnvFile: v })}
-            hint="Optional path to an operator-mounted env file read fresh on every check. Never stored by groundtruth."
+            hint="Optional absolute path to an operator-mounted env file (e.g. /secrets/credentials.env), read fresh on every check. Its contents are never stored by groundtruth."
           />
 
           <div className="grid grid-cols-2 gap-4">
