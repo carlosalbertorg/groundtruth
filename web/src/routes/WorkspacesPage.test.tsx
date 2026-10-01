@@ -109,6 +109,16 @@ describe('WorkspacesPage', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/already running/i)
   })
 
+  it('says the binary version field is informational, not enforced', async () => {
+    vi.stubGlobal('fetch', mockFetchJSON([]))
+    const user = userEvent.setup()
+
+    renderPage()
+    await screen.findByText(/no workspaces yet/i)
+    await user.click(screen.getByRole('button', { name: 'New workspace' }))
+
+    expect(screen.getByText(/not enforced/i)).toBeInTheDocument()
+  })
 
   it('opens and closes the new workspace dialog', async () => {
     vi.stubGlobal('fetch', mockFetchJSON([]))

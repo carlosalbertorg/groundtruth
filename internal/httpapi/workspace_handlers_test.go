@@ -139,6 +139,14 @@ func TestWorkspaceCreateValidation(t *testing.T) {
 			wantCode: "invalid_working_subdirectory",
 		},
 		{
+			name: "relative credential env file",
+			body: map[string]any{
+				"name": "a", "source_path": "/x", "binary_kind": "terraform",
+				"credential_env_file": "credentials.env",
+			},
+			wantCode: "credential_env_file_must_be_absolute",
+		},
+		{
 			name: "working subdirectory is absolute",
 			body: map[string]any{
 				"name": "a", "source_path": "/x", "binary_kind": "terraform",
@@ -162,6 +170,18 @@ func TestWorkspaceCreateValidation(t *testing.T) {
 				t.Errorf("error = %q, want %q", errResp.Error, tc.wantCode)
 			}
 		})
+	}
+}
+
+func TestWorkspaceKeepsAnAbsoluteCredentialEnvFile(t *testing.T) {
+	r := newTestRouter(t)
+	cookie := loginAsNewAdmin(t, r)
+
+	ws := createTestWorkspace(t, r, cookie, map[string]any{
+		"credential_env_file": "  /secrets/credentials.env  ",
+	})
+	if ws["credential_env_file"] != "/secrets/credentials.env" {
+		t.Errorf("credential_env_file = %v, want the trimmed absolute path", ws["credential_env_file"])
 	}
 }
 
