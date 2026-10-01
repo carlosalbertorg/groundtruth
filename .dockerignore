@@ -1,0 +1,9 @@
+.git
+web/node_modules
+web/dist
+web/coverage
+internal/webassets/dist/*
+!internal/webassets/dist/index.html
+data
+*.exe
+groundtruth
