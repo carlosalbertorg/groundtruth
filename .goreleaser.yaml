@@ -59,6 +59,19 @@ dockers:
     dockerfile: Dockerfile
     goos: linux
     goarch: amd64
+    # Our Dockerfile builds the Go binary and the frontend from source
+    # itself (see the NOTE above) - it never copies the binary GoReleaser
+    # just built. GoReleaser's docker build context normally contains only
+    # the Dockerfile and that binary, so the full source tree has to be
+    # shipped in explicitly. .dockerignore is included so the same
+    # exclusions apply here as in a plain `docker build .`.
+    extra_files:
+      - go.mod
+      - go.sum
+      - cmd
+      - internal
+      - web
+      - .dockerignore
     image_templates:
       - "ghcr.io/carlosalbertorg/groundtruth:{{ .Version }}-amd64"
       - "ghcr.io/carlosalbertorg/groundtruth:latest-amd64"
@@ -72,6 +85,13 @@ dockers:
     dockerfile: Dockerfile
     goos: linux
     goarch: arm64
+    extra_files:
+      - go.mod
+      - go.sum
+      - cmd
+      - internal
+      - web
+      - .dockerignore
     image_templates:
       - "ghcr.io/carlosalbertorg/groundtruth:{{ .Version }}-arm64"
       - "ghcr.io/carlosalbertorg/groundtruth:latest-arm64"
