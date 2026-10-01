@@ -13,13 +13,13 @@ import { useAPITokens, useCreateAPIToken, useRevokeAPIToken } from '../api/apiTo
 export function SettingsPage() {
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-100">
-      <header className="border-b border-neutral-800 px-8 py-4">
+      <header className="border-b border-neutral-800 px-4 py-4 sm:px-8">
         <Link to="/" className="text-sm text-neutral-400 hover:text-neutral-200">
           &larr; Workspaces
         </Link>
       </header>
 
-      <main className="mx-auto max-w-3xl p-8">
+      <main className="mx-auto max-w-3xl p-4 sm:p-8">
         <h1 className="text-lg font-semibold">Settings</h1>
 
         <AlertDestinationsSection />
@@ -83,7 +83,7 @@ function AlertDestinationsSection() {
 
   return (
     <section className="mt-8">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-medium text-neutral-300">Alert destinations</h2>
         {!showForm && (
           <button onClick={startCreate} className="btn-primary">
@@ -95,6 +95,10 @@ function AlertDestinationsSection() {
         Notified when a workspace transitions into drift, out of drift, or into a failed check.
       </p>
 
+      {destinations.isPending && <p className="mt-4 text-sm text-neutral-400">Loading…</p>}
+      {destinations.isError && (
+        <p className="mt-4 text-sm text-red-400">Couldn&rsquo;t load alert destinations.</p>
+      )}
       {destinations.data && destinations.data.length === 0 && !showForm && (
         <p className="mt-4 text-sm text-neutral-500">No alert destinations configured.</p>
       )}
@@ -104,9 +108,9 @@ function AlertDestinationsSection() {
           {destinations.data.map((dest) => (
             <li
               key={dest.id}
-              className="flex items-center justify-between rounded border border-neutral-800 px-3 py-2 text-sm"
+              className="flex flex-wrap items-center justify-between gap-2 rounded border border-neutral-800 px-3 py-2 text-sm"
             >
-              <div>
+              <div className="min-w-0 break-all">
                 <span className="font-medium">{dest.name}</span>
                 <span className="ml-2 text-xs text-neutral-500">
                   {dest.kind === 'slack' ? 'Slack' : 'Webhook'} &middot; {dest.url}
@@ -249,14 +253,22 @@ function APITokensSection() {
         </div>
       )}
 
+      {tokens.isPending && <p className="mt-4 text-sm text-neutral-400">Loading…</p>}
+      {tokens.isError && (
+        <p className="mt-4 text-sm text-red-400">Couldn&rsquo;t load API tokens.</p>
+      )}
+      {tokens.data && tokens.data.length === 0 && (
+        <p className="mt-4 text-sm text-neutral-500">No API tokens yet.</p>
+      )}
+
       {tokens.data && tokens.data.length > 0 && (
         <ul className="mt-4 flex flex-col gap-2">
           {tokens.data.map((t) => (
             <li
               key={t.id}
-              className="flex items-center justify-between rounded border border-neutral-800 px-3 py-2 text-sm"
+              className="flex flex-wrap items-center justify-between gap-2 rounded border border-neutral-800 px-3 py-2 text-sm"
             >
-              <div>
+              <div className="min-w-0 break-all">
                 <span className="font-medium">{t.name}</span>
                 <span className="ml-2 text-xs text-neutral-500">
                   {t.last_used_at
