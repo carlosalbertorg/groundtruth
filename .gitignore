@@ -17,6 +17,9 @@ coverage.html
 /internal/webassets/dist/*
 !/internal/webassets/dist/index.html
 
+# GoReleaser output (from `goreleaser release`/`build`, including --snapshot)
+/dist/
+
 # Local env / secrets
 .env
 .env.*
