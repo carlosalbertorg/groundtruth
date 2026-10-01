@@ -3,6 +3,7 @@ package alerting
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/carlosalbertorg/groundtruth/internal/store/sqlc"
@@ -76,7 +77,9 @@ func dashboardURL(baseURL, workspaceID string) string {
 	if baseURL == "" {
 		return ""
 	}
-	return fmt.Sprintf("%s/workspaces/%s", baseURL, workspaceID)
+	// GROUNDTRUTH_BASE_URL is operator-typed, and a trailing slash is an
+	// easy thing to include; without trimming it the link has a "//".
+	return fmt.Sprintf("%s/workspaces/%s", strings.TrimRight(baseURL, "/"), workspaceID)
 }
 
 // --- Slack Block Kit ---
