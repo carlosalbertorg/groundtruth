@@ -27,7 +27,10 @@ jobs:
       security-events: write
     steps:
       - uses: actions/checkout@v5
-      - uses: securego/gosec@master
+      # Pinned to a release rather than `master`: this step runs with
+      # security-events: write, so it shouldn't track an unreviewed branch.
+      # Dependabot (github-actions) proposes bumps.
+      - uses: securego/gosec@v2.29.0
         with:
           args: "-exclude-generated -no-fail -fmt sarif -out gosec-results.sarif ./..."
       - uses: github/codeql-action/upload-sarif@v4
