@@ -34,6 +34,12 @@ func (c *terraformClient) Init(ctx context.Context) error {
 	// Upgrade(false): never let a scheduled drift check silently bump
 	// provider/module versions. That's a deliberate operator action, not
 	// something that should happen as a side effect of checking drift.
+	//
+	// It only holds the versions a committed .terraform.lock.hcl pins
+	// (copyModuleSource copies that file in). Every check runs in a fresh
+	// directory, so a module without a lock file has nothing to hold it back
+	// and init resolves the newest versions its constraints allow - see
+	// "Detection model and its limits" in docs/ARCHITECTURE.md.
 	return c.tf.Init(ctx, tfexec.Upgrade(false))
 }
 

@@ -31,6 +31,8 @@ func newTofuClient(workDir string, env map[string]string) (client, error) {
 }
 
 func (c *tofuClient) Init(ctx context.Context) error {
+	// Same reasoning as terraformClient.Init: Upgrade(false) only holds the
+	// versions pinned by a committed .terraform.lock.hcl.
 	return c.tf.Init(ctx, tfexec.Upgrade(false))
 }
 

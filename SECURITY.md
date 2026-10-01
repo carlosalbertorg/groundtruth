@@ -24,6 +24,8 @@ Please include:
 
 In scope: the groundtruth server and its official Docker image. Out of scope: vulnerabilities in Terraform, OpenTofu, or cloud provider tooling itself — please report those upstream.
 
+groundtruth is a single-operator admin tool and makes a few assumptions on purpose (for example, that the Terraform/OpenTofu binaries and providers it runs are trusted, and that first-run setup is open until the first admin exists). The [threat model](docs/ARCHITECTURE.md#threat-model) lists them, so you can see what groundtruth does and doesn't defend against before you report.
+
 ## Supported versions
 
-Until a stable 1.0 release, only the latest `main` / most recent tagged release is supported with security fixes.
+Only the most recent tagged release (and `main`) is supported with security fixes. Upgrade to the latest release before reporting an issue you found in an older one.

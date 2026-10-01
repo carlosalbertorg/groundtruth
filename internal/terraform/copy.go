@@ -12,8 +12,8 @@ import (
 // copyModuleSource copies src into dst, skipping:
 //   - .git and .terraform directories (VCS metadata and cached provider
 //     plugins/state respectively - the latter would also be pointless to
-//     copy, since each check gets a fresh plugin cache via
-//     TF_PLUGIN_CACHE_DIR instead)
+//     copy, since `init` takes providers from the plugin cache shared by
+//     every check, via TF_PLUGIN_CACHE_DIR)
 //   - any terraform.tfstate* file - a real state file must never be
 //     dragged into an isolated check's throwaway directory, where
 //     "refresh-only" behavior and provider credential scoping assumptions
