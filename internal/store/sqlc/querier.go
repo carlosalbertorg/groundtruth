@@ -6,26 +6,37 @@ package sqlc
 
 import (
 	"context"
+	"database/sql"
 	"time"
 )
 
 type Querier interface {
 	CountUsers(ctx context.Context) (int64, error)
+	CreateAPIToken(ctx context.Context, arg CreateAPITokenParams) (ApiToken, error)
+	CreateAlertDestination(ctx context.Context, arg CreateAlertDestinationParams) (AlertDestination, error)
+	CreateAlertLogEntry(ctx context.Context, arg CreateAlertLogEntryParams) error
 	CreateDriftCheck(ctx context.Context, arg CreateDriftCheckParams) (DriftCheck, error)
 	CreateDriftResource(ctx context.Context, arg CreateDriftResourceParams) error
 	CreateSession(ctx context.Context, arg CreateSessionParams) error
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	CreateWorkspace(ctx context.Context, arg CreateWorkspaceParams) (Workspace, error)
+	DeleteAlertDestination(ctx context.Context, id string) error
 	DeleteExpiredSessions(ctx context.Context, expiresAt time.Time) error
 	DeleteSession(ctx context.Context, tokenHash string) error
 	DeleteSessionsForUser(ctx context.Context, userID string) error
 	DeleteWorkspace(ctx context.Context, id string) error
+	GetActiveAPITokenByHash(ctx context.Context, tokenHash string) (ApiToken, error)
+	GetAlertDestination(ctx context.Context, id string) (AlertDestination, error)
 	GetDriftCheck(ctx context.Context, id string) (DriftCheck, error)
 	GetSessionByTokenHash(ctx context.Context, tokenHash string) (Session, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id string) (User, error)
 	GetWorkspace(ctx context.Context, id string) (Workspace, error)
 	GetWorkspaceByName(ctx context.Context, name string) (Workspace, error)
+	ListAPITokensForUser(ctx context.Context, userID string) ([]ApiToken, error)
+	ListAlertDestinations(ctx context.Context) ([]AlertDestination, error)
+	ListAlertDestinationsForWorkspace(ctx context.Context, workspaceID sql.NullString) ([]AlertDestination, error)
+	ListAlertLogForWorkspace(ctx context.Context, arg ListAlertLogForWorkspaceParams) ([]AlertLog, error)
 	ListDriftChecksForWorkspace(ctx context.Context, arg ListDriftChecksForWorkspaceParams) ([]DriftCheck, error)
 	ListDriftResourcesForCheck(ctx context.Context, driftCheckID string) ([]DriftResource, error)
 	// Deliberately does no date arithmetic here: it just joins each enabled
@@ -37,7 +48,10 @@ type Querier interface {
 	ListEnabledWorkspacesWithLastCheck(ctx context.Context) ([]ListEnabledWorkspacesWithLastCheckRow, error)
 	ListUsers(ctx context.Context) ([]User, error)
 	ListWorkspaces(ctx context.Context) ([]Workspace, error)
+	RevokeAPIToken(ctx context.Context, arg RevokeAPITokenParams) error
+	TouchAPIToken(ctx context.Context, arg TouchAPITokenParams) error
 	TouchSession(ctx context.Context, arg TouchSessionParams) error
+	UpdateAlertDestination(ctx context.Context, arg UpdateAlertDestinationParams) (AlertDestination, error)
 	UpdateUserLastLogin(ctx context.Context, arg UpdateUserLastLoginParams) error
 	UpdateWorkspace(ctx context.Context, arg UpdateWorkspaceParams) (Workspace, error)
 	UpdateWorkspaceLastCheck(ctx context.Context, arg UpdateWorkspaceLastCheckParams) error

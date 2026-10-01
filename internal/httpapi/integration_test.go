@@ -39,6 +39,7 @@ func newTestRouter(t *testing.T) http.Handler {
 		CheckService:  checks.NewService(queries, executor),
 		Sessions:      auth.NewSessionManager(queries),
 		SetupGate:     auth.NewSetupGate(queries),
+		APITokens:     auth.NewAPITokenManager(queries),
 		SecureCookies: false,
 	})
 }
@@ -61,6 +62,17 @@ func doJSON(t *testing.T, r http.Handler, method, path string, body any, cookies
 		req.AddCookie(c)
 	}
 
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	return rec
+}
+
+// doBearer is doJSON's counterpart for routes authenticated via
+// "Authorization: Bearer <token>" instead of a session cookie.
+func doBearer(t *testing.T, r http.Handler, method, path, token string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequestWithContext(t.Context(), method, path, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	return rec

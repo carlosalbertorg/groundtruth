@@ -24,6 +24,9 @@ export function WorkspacesPage({ email }: { email: string }) {
       <header className="flex items-center justify-between border-b border-neutral-800 px-8 py-4">
         <h1 className="text-lg font-semibold">groundtruth</h1>
         <div className="flex items-center gap-4 text-sm text-neutral-400">
+          <Link to="/settings" className="hover:text-neutral-200">
+            Settings
+          </Link>
           <span>{email}</span>
           <button onClick={() => logout.mutate()} className="hover:text-neutral-200">
             Sign out

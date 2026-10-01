@@ -9,6 +9,40 @@ import (
 	"time"
 )
 
+type AlertDestination struct {
+	ID           string         `db:"id" json:"id"`
+	WorkspaceID  sql.NullString `db:"workspace_id" json:"workspace_id"`
+	Name         string         `db:"name" json:"name"`
+	Kind         string         `db:"kind" json:"kind"`
+	Url          string         `db:"url" json:"url"`
+	SharedSecret sql.NullString `db:"shared_secret" json:"shared_secret"`
+	IsEnabled    bool           `db:"is_enabled" json:"is_enabled"`
+	CreatedAt    time.Time      `db:"created_at" json:"created_at"`
+}
+
+type AlertLog struct {
+	ID              string         `db:"id" json:"id"`
+	DestinationID   string         `db:"destination_id" json:"destination_id"`
+	WorkspaceID     string         `db:"workspace_id" json:"workspace_id"`
+	DriftCheckID    sql.NullString `db:"drift_check_id" json:"drift_check_id"`
+	EventType       string         `db:"event_type" json:"event_type"`
+	Success         bool           `db:"success" json:"success"`
+	HttpStatus      sql.NullInt64  `db:"http_status" json:"http_status"`
+	ResponseSnippet sql.NullString `db:"response_snippet" json:"response_snippet"`
+	AttemptedAt     time.Time      `db:"attempted_at" json:"attempted_at"`
+	RetryCount      int64          `db:"retry_count" json:"retry_count"`
+}
+
+type ApiToken struct {
+	ID         string       `db:"id" json:"id"`
+	UserID     string       `db:"user_id" json:"user_id"`
+	Name       string       `db:"name" json:"name"`
+	TokenHash  string       `db:"token_hash" json:"token_hash"`
+	CreatedAt  time.Time    `db:"created_at" json:"created_at"`
+	LastUsedAt sql.NullTime `db:"last_used_at" json:"last_used_at"`
+	RevokedAt  sql.NullTime `db:"revoked_at" json:"revoked_at"`
+}
+
 type DriftCheck struct {
 	ID                 string         `db:"id" json:"id"`
 	WorkspaceID        string         `db:"workspace_id" json:"workspace_id"`

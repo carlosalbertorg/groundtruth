@@ -41,15 +41,29 @@ type executor interface {
 	RunCheck(ctx context.Context, in terraform.CheckInput) (*tfjson.Plan, error)
 }
 
+// Notifier is told about every check's outcome, so it can alert on a
+// status change. It's optional - a Service with none configured simply
+// skips this step.
+type Notifier interface {
+	Notify(ctx context.Context, ws sqlc.Workspace, check sqlc.DriftCheck, previousStatus string)
+}
+
 // Service runs drift checks and persists their outcome.
 type Service struct {
 	queries  *sqlc.Queries
 	executor executor
+	notifier Notifier
 }
 
 // NewService builds a Service backed by queries and executor.
 func NewService(queries *sqlc.Queries, executor *terraform.Executor) *Service {
 	return &Service{queries: queries, executor: executor}
+}
+
+// SetNotifier attaches a Notifier, told about every check's outcome
+// from this point on. Optional; call it once during startup wiring.
+func (s *Service) SetNotifier(n Notifier) {
+	s.notifier = n
 }
 
 // Result is a persisted check together with its (already-redacted)
@@ -123,6 +137,10 @@ func (s *Service) Run(ctx context.Context, ws sqlc.Workspace, triggeredBy string
 		ID:              ws.ID,
 	}); err != nil {
 		return Result{}, fmt.Errorf("update workspace last check: %w", err)
+	}
+
+	if s.notifier != nil {
+		s.notifier.Notify(ctx, ws, check, ws.LastCheckStatus.String)
 	}
 
 	return Result{Check: check, Resources: result.Resources}, nil
