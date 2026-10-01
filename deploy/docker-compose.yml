@@ -1,0 +1,28 @@
+services:
+  groundtruth:
+    image: ghcr.io/carlosalbertorg/groundtruth:latest
+    ports:
+      - "8080:8080"
+    environment:
+      # Set this to groundtruth's real externally-visible URL (including
+      # https://) once you're running behind TLS, so the session cookie
+      # is marked Secure. Leave unset for local HTTP testing.
+      GROUNDTRUTH_BASE_URL: ""
+    volumes:
+      # Persists the SQLite database, the Terraform/OpenTofu plugin
+      # cache, and per-check scratch space.
+      - groundtruth-data:/data
+      # Mount your Terraform/OpenTofu module(s) read-only - this is what
+      # a workspace's "source path" points at. groundtruth never writes
+      # to this mount.
+      - ./modules:/modules:ro
+      # Optional: a dotenv-format file with cloud credentials, read
+      # fresh on every check and never stored by groundtruth. Omit this
+      # mount (and a workspace's credential_env_file) entirely if your
+      # module's backend/providers pick up credentials another way
+      # (an attached IAM role, ambient environment variables, etc).
+      - ./credentials.env:/secrets/credentials.env:ro
+    restart: unless-stopped
+
+volumes:
+  groundtruth-data:

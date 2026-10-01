@@ -1,0 +1,123 @@
+version: 2
+
+before:
+  hooks:
+    - sh -c "cd web && npm ci && npm run build"
+    - sh -c "rm -rf internal/webassets/dist && cp -r web/dist internal/webassets/dist"
+
+builds:
+  - id: groundtruth
+    main: ./cmd/groundtruth
+    binary: groundtruth
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+      - -X github.com/carlosalbertorg/groundtruth/internal/buildinfo.Version={{.Version}}
+      - -X github.com/carlosalbertorg/groundtruth/internal/buildinfo.Commit={{.Commit}}
+      - -X github.com/carlosalbertorg/groundtruth/internal/buildinfo.Date={{.Date}}
+
+archives:
+  - id: groundtruth
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+
+checksum:
+  name_template: checksums.txt
+
+sboms:
+  - id: default
+    artifacts: archive
+
+signs:
+  - id: checksums
+    cmd: cosign
+    signature: "${artifact}.sig"
+    certificate: "${artifact}.pem"
+    args:
+      - sign-blob
+      - --yes
+      - --output-signature=${signature}
+      - --output-certificate=${certificate}
+      - ${artifact}
+    artifacts: checksum
+
+# NOTE: `dockers` + `docker_manifests` are deprecated in GoReleaser v2 in favor
+# of `dockers_v2`, but `dockers_v2` assumes a minimal Dockerfile that only
+# copies a GoReleaser-cross-compiled binary. Our Dockerfile intentionally
+# builds the Go binary *and* the frontend itself, so it stays buildable
+# standalone (`docker build .`) by contributors without GoReleaser installed.
+# Migrating would mean restructuring the Dockerfile around GoReleaser's build
+# output just to satisfy a lint notice. Revisit if `dockers`/`docker_manifests`
+# ever get an actual removal date; as of writing there is none.
+dockers:
+  - id: groundtruth-amd64
+    use: buildx
+    dockerfile: Dockerfile
+    goos: linux
+    goarch: amd64
+    image_templates:
+      - "ghcr.io/carlosalbertorg/groundtruth:{{ .Version }}-amd64"
+      - "ghcr.io/carlosalbertorg/groundtruth:latest-amd64"
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--build-arg=VERSION={{ .Version }}"
+      - "--build-arg=COMMIT={{ .Commit }}"
+      - "--build-arg=DATE={{ .Date }}"
+  - id: groundtruth-arm64
+    use: buildx
+    dockerfile: Dockerfile
+    goos: linux
+    goarch: arm64
+    image_templates:
+      - "ghcr.io/carlosalbertorg/groundtruth:{{ .Version }}-arm64"
+      - "ghcr.io/carlosalbertorg/groundtruth:latest-arm64"
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--build-arg=VERSION={{ .Version }}"
+      - "--build-arg=COMMIT={{ .Commit }}"
+      - "--build-arg=DATE={{ .Date }}"
+
+docker_manifests:
+  - name_template: "ghcr.io/carlosalbertorg/groundtruth:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/carlosalbertorg/groundtruth:{{ .Version }}-amd64"
+      - "ghcr.io/carlosalbertorg/groundtruth:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/carlosalbertorg/groundtruth:latest"
+    image_templates:
+      - "ghcr.io/carlosalbertorg/groundtruth:latest-amd64"
+      - "ghcr.io/carlosalbertorg/groundtruth:latest-arm64"
+
+changelog:
+  sort: asc
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: Fixes
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: Others
+      order: 999
+  filters:
+    exclude:
+      - "^docs:"
+      - "^chore:"
+      - "^test:"
+
+release:
+  footer: |
+    ## Verifying
+
+    `checksums.txt` is signed with [cosign](https://docs.sigstore.dev/cosign/overview/) using GitHub OIDC (keyless). Verify with:
+
+    ```sh
+    cosign verify-blob checksums.txt \
+      --signature checksums.txt.sig \
+      --certificate checksums.txt.pem \
+      --certificate-identity-regexp 'https://github.com/carlosalbertorg/groundtruth/.github/workflows/.+' \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com
+    ```
