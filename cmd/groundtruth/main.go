@@ -116,6 +116,12 @@ func run(logger *slog.Logger) error {
 		// directory (which can hold an unredacted plan file).
 		BaseContext:       func(net.Listener) context.Context { return ctx },
 		ReadHeaderTimeout: 10 * time.Second,
+		// Bounds how long a client may take to send a request body, and how
+		// long an idle keep-alive connection is held open. There is
+		// deliberately no WriteTimeout: a "check now" request can legitimately
+		// run for as long as its workspace's check_timeout_seconds.
+		ReadTimeout: 60 * time.Second,
+		IdleTimeout: 120 * time.Second,
 	}
 
 	sched := scheduler.New(queries, checkService, logger, schedulerPollInterval, cfg.MaxConcurrentChecks)

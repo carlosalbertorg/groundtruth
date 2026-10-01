@@ -39,6 +39,9 @@ type Deps struct {
 func NewRouter(d Deps) http.Handler {
 	r := chi.NewRouter()
 
+	// First, so even a response written by Recoverer or the rate limiter
+	// carries the hardening headers.
+	r.Use(securityHeaders)
 	r.Use(middleware.RequestID)
 	// Deliberately not using chi's middleware.RealIP: it trusts
 	// X-Forwarded-For/X-Real-IP unconditionally, which lets a client spoof
@@ -143,6 +146,21 @@ func handleHealthz(w http.ResponseWriter, _ *http.Request) {
 func spaHandler(spa fs.FS) http.HandlerFunc {
 	fileServer := http.FileServerFS(spa)
 	return func(w http.ResponseWriter, r *http.Request) {
+		// An unknown API route must be a JSON 404, never the SPA shell: the
+		// shell answers 200, so a mistyped URL in a CI script (curl without
+		// -f) would look like a check that was triggered.
+		if isAPIPath(r.URL.Path) {
+			writeJSONError(w, http.StatusNotFound, "not_found")
+			return
+		}
+		// The shell is a page to read, so only GET/HEAD get it. A POST to a
+		// non-route is a client error, not something to answer with HTML.
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			writeJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed")
+			return
+		}
+
 		path := r.URL.Path
 		if path != "/" {
 			if f, err := spa.Open(trimLeadingSlash(path)); err == nil {
