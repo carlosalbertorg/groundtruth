@@ -11,6 +11,8 @@ import (
 
 type Querier interface {
 	CountUsers(ctx context.Context) (int64, error)
+	CreateDriftCheck(ctx context.Context, arg CreateDriftCheckParams) (DriftCheck, error)
+	CreateDriftResource(ctx context.Context, arg CreateDriftResourceParams) error
 	CreateSession(ctx context.Context, arg CreateSessionParams) error
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	CreateWorkspace(ctx context.Context, arg CreateWorkspaceParams) (Workspace, error)
@@ -18,16 +20,20 @@ type Querier interface {
 	DeleteSession(ctx context.Context, tokenHash string) error
 	DeleteSessionsForUser(ctx context.Context, userID string) error
 	DeleteWorkspace(ctx context.Context, id string) error
+	GetDriftCheck(ctx context.Context, id string) (DriftCheck, error)
 	GetSessionByTokenHash(ctx context.Context, tokenHash string) (Session, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id string) (User, error)
 	GetWorkspace(ctx context.Context, id string) (Workspace, error)
 	GetWorkspaceByName(ctx context.Context, name string) (Workspace, error)
+	ListDriftChecksForWorkspace(ctx context.Context, arg ListDriftChecksForWorkspaceParams) ([]DriftCheck, error)
+	ListDriftResourcesForCheck(ctx context.Context, driftCheckID string) ([]DriftResource, error)
 	ListUsers(ctx context.Context) ([]User, error)
 	ListWorkspaces(ctx context.Context) ([]Workspace, error)
 	TouchSession(ctx context.Context, arg TouchSessionParams) error
 	UpdateUserLastLogin(ctx context.Context, arg UpdateUserLastLoginParams) error
 	UpdateWorkspace(ctx context.Context, arg UpdateWorkspaceParams) (Workspace, error)
+	UpdateWorkspaceLastCheck(ctx context.Context, arg UpdateWorkspaceLastCheckParams) error
 }
 
 var _ Querier = (*Queries)(nil)

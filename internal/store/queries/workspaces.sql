@@ -35,3 +35,6 @@ RETURNING *;
 
 -- name: DeleteWorkspace :exec
 DELETE FROM workspaces WHERE id = ?;
+
+-- name: UpdateWorkspaceLastCheck :exec
+UPDATE workspaces SET last_check_id = ?, last_check_status = ? WHERE id = ?;

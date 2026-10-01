@@ -1,6 +1,9 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useLogout } from '../api/auth'
+import { useRunCheck } from '../api/checks'
 import { type Workspace, useDeleteWorkspace, useWorkspaces } from '../api/workspaces'
+import { StatusBadge } from '../components/StatusBadge'
 import { WorkspaceFormDialog } from './WorkspaceFormDialog'
 
 export function WorkspacesPage({ email }: { email: string }) {
@@ -60,37 +63,12 @@ export function WorkspacesPage({ email }: { email: string }) {
             </thead>
             <tbody>
               {workspaces.data.map((ws) => (
-                <tr key={ws.id} className="border-b border-neutral-900">
-                  <td className="py-3">
-                    {ws.name}
-                    {!ws.is_enabled && (
-                      <span className="ml-2 rounded bg-neutral-800 px-1.5 py-0.5 text-xs text-neutral-400">
-                        disabled
-                      </span>
-                    )}
-                  </td>
-                  <td className="py-3 text-neutral-400">
-                    {ws.binary_kind === 'tofu' ? 'OpenTofu' : 'Terraform'}
-                  </td>
-                  <td className="py-3 text-neutral-400">every {ws.check_interval_minutes}m</td>
-                  <td className="py-3 text-neutral-500">
-                    {ws.last_check_status ?? 'never checked'}
-                  </td>
-                  <td className="py-3 text-right">
-                    <button
-                      onClick={() => setDialogState({ open: true, workspace: ws })}
-                      className="text-neutral-400 hover:text-neutral-200"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(ws)}
-                      className="ml-4 text-red-400/80 hover:text-red-400"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
+                <WorkspaceRow
+                  key={ws.id}
+                  workspace={ws}
+                  onEdit={() => setDialogState({ open: true, workspace: ws })}
+                  onDelete={() => handleDelete(ws)}
+                />
               ))}
             </tbody>
           </table>
@@ -103,5 +81,54 @@ export function WorkspacesPage({ email }: { email: string }) {
         onOpenChange={(open) => setDialogState((s) => ({ ...s, open }))}
       />
     </div>
+  )
+}
+
+function WorkspaceRow({
+  workspace: ws,
+  onEdit,
+  onDelete,
+}: {
+  workspace: Workspace
+  onEdit: () => void
+  onDelete: () => void
+}) {
+  const runCheck = useRunCheck(ws.id)
+
+  return (
+    <tr className="border-b border-neutral-900">
+      <td className="py-3">
+        <Link to={`/workspaces/${ws.id}`} className="hover:underline">
+          {ws.name}
+        </Link>
+        {!ws.is_enabled && (
+          <span className="ml-2 rounded bg-neutral-800 px-1.5 py-0.5 text-xs text-neutral-400">
+            disabled
+          </span>
+        )}
+      </td>
+      <td className="py-3 text-neutral-400">
+        {ws.binary_kind === 'tofu' ? 'OpenTofu' : 'Terraform'}
+      </td>
+      <td className="py-3 text-neutral-400">every {ws.check_interval_minutes}m</td>
+      <td className="py-3">
+        <StatusBadge status={ws.last_check_status} />
+      </td>
+      <td className="py-3 text-right whitespace-nowrap">
+        <button
+          onClick={() => runCheck.mutate()}
+          disabled={runCheck.isPending}
+          className="text-neutral-400 hover:text-neutral-200 disabled:opacity-50"
+        >
+          {runCheck.isPending ? 'Checking…' : 'Check now'}
+        </button>
+        <button onClick={onEdit} className="ml-4 text-neutral-400 hover:text-neutral-200">
+          Edit
+        </button>
+        <button onClick={onDelete} className="ml-4 text-red-400/80 hover:text-red-400">
+          Delete
+        </button>
+      </td>
+    </tr>
   )
 }

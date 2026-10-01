@@ -46,6 +46,13 @@ export function useWorkspaces() {
   })
 }
 
+export function useWorkspace(id: string) {
+  return useQuery({
+    queryKey: queryKeys.workspace(id),
+    queryFn: () => api.get<Workspace>(`/workspaces/${id}`),
+  })
+}
+
 export function useCreateWorkspace() {
   const queryClient = useQueryClient()
   return useMutation({

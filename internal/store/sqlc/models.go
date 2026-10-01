@@ -9,6 +9,34 @@ import (
 	"time"
 )
 
+type DriftCheck struct {
+	ID                 string         `db:"id" json:"id"`
+	WorkspaceID        string         `db:"workspace_id" json:"workspace_id"`
+	Status             string         `db:"status" json:"status"`
+	StartedAt          time.Time      `db:"started_at" json:"started_at"`
+	FinishedAt         sql.NullTime   `db:"finished_at" json:"finished_at"`
+	DurationMs         sql.NullInt64  `db:"duration_ms" json:"duration_ms"`
+	ResourcesAdded     int64          `db:"resources_added" json:"resources_added"`
+	ResourcesChanged   int64          `db:"resources_changed" json:"resources_changed"`
+	ResourcesDestroyed int64          `db:"resources_destroyed" json:"resources_destroyed"`
+	ResourcesUnchanged int64          `db:"resources_unchanged" json:"resources_unchanged"`
+	ErrorMessage       sql.NullString `db:"error_message" json:"error_message"`
+	TriggeredBy        string         `db:"triggered_by" json:"triggered_by"`
+}
+
+type DriftResource struct {
+	ID              string         `db:"id" json:"id"`
+	DriftCheckID    string         `db:"drift_check_id" json:"drift_check_id"`
+	ResourceAddress string         `db:"resource_address" json:"resource_address"`
+	ResourceType    string         `db:"resource_type" json:"resource_type"`
+	ModuleAddress   sql.NullString `db:"module_address" json:"module_address"`
+	Action          string         `db:"action" json:"action"`
+	BeforeJson      sql.NullString `db:"before_json" json:"before_json"`
+	AfterJson       sql.NullString `db:"after_json" json:"after_json"`
+	HasSensitive    bool           `db:"has_sensitive" json:"has_sensitive"`
+	HasUnknown      bool           `db:"has_unknown" json:"has_unknown"`
+}
+
 type Session struct {
 	TokenHash  string         `db:"token_hash" json:"token_hash"`
 	UserID     string         `db:"user_id" json:"user_id"`
