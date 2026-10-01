@@ -6,6 +6,16 @@ import { AuthCard } from './AuthCard'
 
 const MIN_PASSWORD_LENGTH = 12
 
+// bcrypt cannot hash more than 72 bytes, and the server counts bytes rather
+// than characters - so a password using accented or non-Latin letters hits
+// the limit in fewer than 72 characters.
+const MAX_PASSWORD_BYTES = 72
+const PASSWORD_TOO_LONG_MESSAGE = `Password must be at most ${MAX_PASSWORD_BYTES} bytes (fewer characters if it uses accented or non-Latin letters).`
+
+function byteLength(text: string): number {
+  return new TextEncoder().encode(text).length
+}
+
 export function SetupPage() {
   const navigate = useNavigate()
   const createAdmin = useCreateAdmin()
@@ -20,6 +30,10 @@ export function SetupPage() {
 
     if (password.length < MIN_PASSWORD_LENGTH) {
       setFormError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`)
+      return
+    }
+    if (byteLength(password) > MAX_PASSWORD_BYTES) {
+      setFormError(PASSWORD_TOO_LONG_MESSAGE)
       return
     }
     if (password !== confirmPassword) {
@@ -92,6 +106,8 @@ function describeError(err: ApiError): string {
       return 'That email address doesn’t look valid.'
     case 'password_too_short':
       return `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`
+    case 'password_too_long':
+      return PASSWORD_TOO_LONG_MESSAGE
     case 'setup_already_complete':
       return 'Setup has already been completed.'
     default:

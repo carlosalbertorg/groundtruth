@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"database/sql"
+	"errors"
 	"net"
 	"net/http"
 	"strings"
@@ -15,10 +16,21 @@ type authHandlers struct {
 	queries  *sqlc.Queries
 	sessions *auth.SessionManager
 	secure   bool // whether to mark the session cookie Secure (see router.go)
+
+	// burnPasswordCheck is auth.BurnPasswordCheck. It's a field only so a
+	// test can observe that the unknown-email path really calls it - the
+	// property is about response *time*, which a test can't assert on
+	// reliably.
+	burnPasswordCheck func(password string)
 }
 
 func newAuthHandlers(queries *sqlc.Queries, sessions *auth.SessionManager, secure bool) *authHandlers {
-	return &authHandlers{queries: queries, sessions: sessions, secure: secure}
+	return &authHandlers{
+		queries:           queries,
+		sessions:          sessions,
+		secure:            secure,
+		burnPasswordCheck: auth.BurnPasswordCheck,
+	}
 }
 
 type loginRequest struct {
@@ -36,9 +48,17 @@ func (h *authHandlers) login(w http.ResponseWriter, r *http.Request) {
 	email := strings.ToLower(strings.TrimSpace(req.Email))
 	user, err := h.queries.GetUserByEmail(r.Context(), email)
 	if err != nil {
-		// Same response whether the email doesn't exist or the password
-		// is wrong, so a login attempt can't be used to enumerate which
-		// email addresses have accounts.
+		if !errors.Is(err, sql.ErrNoRows) {
+			// A database failure says nothing about whether the account
+			// exists, so it's safe (and more honest) to report it as one
+			// rather than as a wrong password.
+			writeJSONError(w, http.StatusInternalServerError, "internal_error")
+			return
+		}
+		// Same response, and the same response *time*, whether the email
+		// doesn't exist or the password is wrong, so a login attempt can't
+		// be used to enumerate which email addresses have accounts.
+		h.burnPasswordCheck(req.Password)
 		writeJSONError(w, http.StatusUnauthorized, "invalid_credentials")
 		return
 	}
