@@ -12,3 +12,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+  # The Dockerfile's base images (node, golang, alpine) ship in the release
+  # image, so their security patches matter as much as the Go dependencies'.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
