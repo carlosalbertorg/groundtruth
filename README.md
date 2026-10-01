@@ -28,6 +28,10 @@ reaches a working v1. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - **Single binary, single process.** An embedded SQLite database and an
   embedded frontend — nothing else to run to self-host this.
 
+## Contributing
+
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request — in particular, open an issue first for anything beyond a small fix. This project follows the [Code of Conduct](CODE_OF_CONDUCT.md). Security issues should be reported privately per [SECURITY.md](SECURITY.md), not as a public issue.
+
 ## License
 
 [Apache-2.0](LICENSE)

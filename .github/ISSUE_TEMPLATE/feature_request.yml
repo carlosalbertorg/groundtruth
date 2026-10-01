@@ -1,0 +1,20 @@
+name: Feature request
+description: Suggest an idea, or propose a change in scope.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: What are you trying to do that groundtruth doesn't support today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: If you have one in mind. It's fine to leave this blank and just describe the problem.
+  - type: markdown
+    attributes:
+      value: |
+        Please wait for a maintainer to respond before opening a pull request for anything beyond a small fix — see [CONTRIBUTING.md](../../CONTRIBUTING.md).
