@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { useCurrentUser, useSetupStatus } from './api/auth'
 import { CheckDetailPage } from './routes/CheckDetailPage'
 import { LoginPage } from './routes/LoginPage'
+import { SettingsPage } from './routes/SettingsPage'
 import { SetupPage } from './routes/SetupPage'
 import { WorkspaceDetailPage } from './routes/WorkspaceDetailPage'
 import { WorkspacesPage } from './routes/WorkspacesPage'
@@ -56,6 +57,7 @@ export default function App() {
       <Route path="/" element={<WorkspacesPage email={user.email} />} />
       <Route path="/workspaces/:id" element={<WorkspaceDetailPage />} />
       <Route path="/checks/:id" element={<CheckDetailPage />} />
+      <Route path="/settings" element={<SettingsPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )

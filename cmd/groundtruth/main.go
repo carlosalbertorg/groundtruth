@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/carlosalbertorg/groundtruth/internal/alerting"
 	"github.com/carlosalbertorg/groundtruth/internal/auth"
 	"github.com/carlosalbertorg/groundtruth/internal/buildinfo"
 	"github.com/carlosalbertorg/groundtruth/internal/checks"
@@ -69,6 +70,7 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	checkService := checks.NewService(queries, executor)
+	checkService.SetNotifier(alerting.NewDispatcher(queries, logger, cfg.BaseURL))
 
 	spa, err := webassets.Dist()
 	if err != nil {
@@ -82,6 +84,7 @@ func run(logger *slog.Logger) error {
 		CheckService:  checkService,
 		Sessions:      auth.NewSessionManager(queries),
 		SetupGate:     auth.NewSetupGate(queries),
+		APITokens:     auth.NewAPITokenManager(queries),
 		SecureCookies: cfg.SecureCookies(),
 	})
 

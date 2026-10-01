@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/carlosalbertorg/groundtruth/internal/store/sqlc"
 )
@@ -46,6 +47,38 @@ func RequireSession(sessions *SessionManager, queries *sqlc.Queries) func(http.H
 func UserFromContext(ctx context.Context) (sqlc.User, bool) {
 	u, ok := ctx.Value(userContextKey).(sqlc.User)
 	return u, ok
+}
+
+// RequireSessionOrAPIToken allows either a valid session cookie or a
+// valid "Authorization: Bearer <token>" API token - for routes that
+// need to work both from the browser and from an unattended caller like
+// CI. It does not populate UserFromContext for the token path; nothing
+// behind this middleware needs the caller's identity today.
+func RequireSessionOrAPIToken(sessions *SessionManager, tokens *APITokenManager, queries *sqlc.Queries) func(http.Handler) http.Handler {
+	requireSession := RequireSession(sessions, queries)
+	return func(next http.Handler) http.Handler {
+		sessionWrapped := requireSession(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if token, ok := bearerToken(r); ok {
+				if _, err := tokens.Validate(r.Context(), token); err != nil {
+					writeJSONError(w, http.StatusUnauthorized, "unauthorized")
+					return
+				}
+				next.ServeHTTP(w, r)
+				return
+			}
+			sessionWrapped.ServeHTTP(w, r)
+		})
+	}
+}
+
+func bearerToken(r *http.Request) (string, bool) {
+	const prefix = "Bearer "
+	h := r.Header.Get("Authorization")
+	if !strings.HasPrefix(h, prefix) {
+		return "", false
+	}
+	return strings.TrimPrefix(h, prefix), true
 }
 
 // RequireSetupComplete blocks every route it wraps until the first admin

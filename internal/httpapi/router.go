@@ -30,6 +30,7 @@ type Deps struct {
 
 	Sessions      *auth.SessionManager
 	SetupGate     *auth.SetupGate
+	APITokens     *auth.APITokenManager
 	SecureCookies bool // mark the session cookie Secure; see config.Config.SecureCookies
 }
 
@@ -75,6 +76,12 @@ func NewRouter(d Deps) http.Handler {
 
 			r.With(loginLimiter.middleware, shortTimeout).Post("/auth/login", authH.login)
 
+			checkH := newCheckHandlers(d.Queries, d.CheckService)
+			// Session OR API token: the one route an unattended
+			// caller (CI) needs to reach without a browser session.
+			r.With(auth.RequireSessionOrAPIToken(d.Sessions, d.APITokens, d.Queries)).
+				Post("/workspaces/{id}/check", checkH.runNow)
+
 			r.Group(func(r chi.Router) {
 				r.Use(requireSession)
 				r.With(shortTimeout).Post("/auth/logout", authH.logout)
@@ -90,10 +97,25 @@ func NewRouter(d Deps) http.Handler {
 					r.Delete("/{id}", workspaces.delete)
 				})
 
-				checkH := newCheckHandlers(d.Queries, d.CheckService)
-				r.Post("/workspaces/{id}/check", checkH.runNow)
 				r.With(shortTimeout).Get("/workspaces/{id}/checks", checkH.history)
 				r.With(shortTimeout).Get("/checks/{checkID}", checkH.get)
+
+				alertH := newAlertDestinationHandlers(d.Queries)
+				r.Route("/alert-destinations", func(r chi.Router) {
+					r.Use(shortTimeout)
+					r.Get("/", alertH.list)
+					r.Post("/", alertH.create)
+					r.Patch("/{id}", alertH.update)
+					r.Delete("/{id}", alertH.delete)
+				})
+
+				tokenH := newAPITokenHandlers(d.Queries, d.APITokens)
+				r.Route("/api-tokens", func(r chi.Router) {
+					r.Use(shortTimeout)
+					r.Get("/", tokenH.list)
+					r.Post("/", tokenH.create)
+					r.Delete("/{id}", tokenH.revoke)
+				})
 			})
 		})
 	})
