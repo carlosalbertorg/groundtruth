@@ -28,6 +28,13 @@ type Querier interface {
 	GetWorkspaceByName(ctx context.Context, name string) (Workspace, error)
 	ListDriftChecksForWorkspace(ctx context.Context, arg ListDriftChecksForWorkspaceParams) ([]DriftCheck, error)
 	ListDriftResourcesForCheck(ctx context.Context, driftCheckID string) ([]DriftResource, error)
+	// Deliberately does no date arithmetic here: it just joins each enabled
+	// workspace to its last check's started_at (NULL if it's never been
+	// checked) and leaves "is it actually due yet" - comparing that against
+	// the workspace's own check_interval_minutes - to the scheduler, in Go,
+	// where it's easy to test with a fake clock instead of relying on
+	// SQLite's dynamic-interval date functions.
+	ListEnabledWorkspacesWithLastCheck(ctx context.Context) ([]ListEnabledWorkspacesWithLastCheckRow, error)
 	ListUsers(ctx context.Context) ([]User, error)
 	ListWorkspaces(ctx context.Context) ([]Workspace, error)
 	TouchSession(ctx context.Context, arg TouchSessionParams) error

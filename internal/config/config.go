@@ -5,6 +5,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -22,6 +23,10 @@ type Config struct {
 	// "assume plain HTTP," so local development works without any
 	// configuration.
 	BaseURL string
+
+	// MaxConcurrentChecks bounds how many drift checks the scheduler
+	// runs at the same time, across all workspaces.
+	MaxConcurrentChecks int
 }
 
 // DBPath is the SQLite database file path, inside DataDir.
@@ -52,9 +57,10 @@ func (c Config) SecureCookies() bool {
 // for anything unset.
 func Load() Config {
 	return Config{
-		Addr:    getEnv("GROUNDTRUTH_ADDR", ":8080"),
-		DataDir: getEnv("GROUNDTRUTH_DATA_DIR", "./data"),
-		BaseURL: getEnv("GROUNDTRUTH_BASE_URL", ""),
+		Addr:                getEnv("GROUNDTRUTH_ADDR", ":8080"),
+		DataDir:             getEnv("GROUNDTRUTH_DATA_DIR", "./data"),
+		BaseURL:             getEnv("GROUNDTRUTH_BASE_URL", ""),
+		MaxConcurrentChecks: getEnvInt("GROUNDTRUTH_MAX_CONCURRENT_CHECKS", 3),
 	}
 }
 
@@ -63,4 +69,16 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func getEnvInt(key string, fallback int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return fallback
+	}
+	return n
 }

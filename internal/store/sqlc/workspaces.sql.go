@@ -142,6 +142,80 @@ func (q *Queries) GetWorkspaceByName(ctx context.Context, name string) (Workspac
 	return i, err
 }
 
+const listEnabledWorkspacesWithLastCheck = `-- name: ListEnabledWorkspacesWithLastCheck :many
+SELECT w.id, w.name, w.description, w.source_path, w.working_subdirectory, w.binary_kind, w.binary_version, w.credential_env_file, w.check_interval_minutes, w.check_timeout_seconds, w.is_enabled, w.last_check_id, w.last_check_status, w.created_by, w.created_at, w.updated_at, c.started_at AS last_check_started_at
+FROM workspaces w
+LEFT JOIN drift_checks c ON c.id = w.last_check_id
+WHERE w.is_enabled = 1
+`
+
+type ListEnabledWorkspacesWithLastCheckRow struct {
+	ID                   string         `db:"id" json:"id"`
+	Name                 string         `db:"name" json:"name"`
+	Description          sql.NullString `db:"description" json:"description"`
+	SourcePath           string         `db:"source_path" json:"source_path"`
+	WorkingSubdirectory  sql.NullString `db:"working_subdirectory" json:"working_subdirectory"`
+	BinaryKind           string         `db:"binary_kind" json:"binary_kind"`
+	BinaryVersion        sql.NullString `db:"binary_version" json:"binary_version"`
+	CredentialEnvFile    sql.NullString `db:"credential_env_file" json:"credential_env_file"`
+	CheckIntervalMinutes int64          `db:"check_interval_minutes" json:"check_interval_minutes"`
+	CheckTimeoutSeconds  int64          `db:"check_timeout_seconds" json:"check_timeout_seconds"`
+	IsEnabled            bool           `db:"is_enabled" json:"is_enabled"`
+	LastCheckID          sql.NullString `db:"last_check_id" json:"last_check_id"`
+	LastCheckStatus      sql.NullString `db:"last_check_status" json:"last_check_status"`
+	CreatedBy            sql.NullString `db:"created_by" json:"created_by"`
+	CreatedAt            time.Time      `db:"created_at" json:"created_at"`
+	UpdatedAt            time.Time      `db:"updated_at" json:"updated_at"`
+	LastCheckStartedAt   sql.NullTime   `db:"last_check_started_at" json:"last_check_started_at"`
+}
+
+// Deliberately does no date arithmetic here: it just joins each enabled
+// workspace to its last check's started_at (NULL if it's never been
+// checked) and leaves "is it actually due yet" - comparing that against
+// the workspace's own check_interval_minutes - to the scheduler, in Go,
+// where it's easy to test with a fake clock instead of relying on
+// SQLite's dynamic-interval date functions.
+func (q *Queries) ListEnabledWorkspacesWithLastCheck(ctx context.Context) ([]ListEnabledWorkspacesWithLastCheckRow, error) {
+	rows, err := q.db.QueryContext(ctx, listEnabledWorkspacesWithLastCheck)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListEnabledWorkspacesWithLastCheckRow
+	for rows.Next() {
+		var i ListEnabledWorkspacesWithLastCheckRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Description,
+			&i.SourcePath,
+			&i.WorkingSubdirectory,
+			&i.BinaryKind,
+			&i.BinaryVersion,
+			&i.CredentialEnvFile,
+			&i.CheckIntervalMinutes,
+			&i.CheckTimeoutSeconds,
+			&i.IsEnabled,
+			&i.LastCheckID,
+			&i.LastCheckStatus,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.LastCheckStartedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listWorkspaces = `-- name: ListWorkspaces :many
 SELECT id, name, description, source_path, working_subdirectory, binary_kind, binary_version, credential_env_file, check_interval_minutes, check_timeout_seconds, is_enabled, last_check_id, last_check_status, created_by, created_at, updated_at FROM workspaces ORDER BY name ASC
 `
