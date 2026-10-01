@@ -17,11 +17,17 @@ import (
 	"github.com/carlosalbertorg/groundtruth/internal/checks"
 	"github.com/carlosalbertorg/groundtruth/internal/config"
 	"github.com/carlosalbertorg/groundtruth/internal/httpapi"
+	"github.com/carlosalbertorg/groundtruth/internal/scheduler"
 	"github.com/carlosalbertorg/groundtruth/internal/store"
 	"github.com/carlosalbertorg/groundtruth/internal/store/sqlc"
 	"github.com/carlosalbertorg/groundtruth/internal/terraform"
 	"github.com/carlosalbertorg/groundtruth/internal/webassets"
 )
+
+// schedulerPollInterval is how often the scheduler checks for due
+// workspaces - not how often any single workspace gets checked (that's
+// each workspace's own check_interval_minutes).
+const schedulerPollInterval = 30 * time.Second
 
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
@@ -85,6 +91,13 @@ func run(logger *slog.Logger) error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
+	sched := scheduler.New(queries, checkService, logger, schedulerPollInterval, cfg.MaxConcurrentChecks)
+	schedulerDone := make(chan struct{})
+	go func() {
+		defer close(schedulerDone)
+		sched.Run(ctx)
+	}()
+
 	serveErr := make(chan error, 1)
 	go func() {
 		logger.Info("groundtruth starting",
@@ -112,5 +125,16 @@ func run(logger *slog.Logger) error {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		return err
 	}
+
+	// sched.Run already observed ctx.Done() above and is unwinding its
+	// own in-flight checks (killed via that same cancelled context) -
+	// wait for it too, bounded by the same shutdown grace period, so a
+	// check's goroutine doesn't touch the database after it's closed.
+	select {
+	case <-schedulerDone:
+	case <-shutdownCtx.Done():
+		logger.Warn("scheduler did not stop within the shutdown grace period")
+	}
+
 	return <-serveErr
 }
