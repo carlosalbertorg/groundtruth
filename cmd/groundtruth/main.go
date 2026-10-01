@@ -43,7 +43,7 @@ func main() {
 func run(logger *slog.Logger) error {
 	cfg := config.Load()
 
-	if err := os.MkdirAll(cfg.DataDir, 0o750); err != nil {
+	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
 		return err
 	}
 
@@ -59,6 +59,13 @@ func run(logger *slog.Logger) error {
 			logger.Error("closing database", "error", err)
 		}
 	}()
+
+	// Tightens a data directory or database created by an earlier version
+	// (which used looser modes). Best effort - a bind-mounted directory the
+	// process doesn't own can't be chmod'ed - so it warns instead of failing.
+	if err := store.RestrictAccess(cfg.DataDir, cfg.DBPath()); err != nil {
+		logger.Warn("could not restrict data directory permissions; check them manually", "error", err)
+	}
 
 	if err := store.Migrate(db); err != nil {
 		return err
