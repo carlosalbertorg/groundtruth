@@ -46,7 +46,7 @@ RUN CGO_ENABLED=0 go build \
 #     https://www.hashicorp.com/trust/security).
 #   - OpenTofu: signs tofu_<version>_SHA256SUMS keylessly with cosign, from its
 #     release workflow (https://opentofu.org/docs/intro/install/standalone/).
-FROM alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8 AS tools
+FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS tools
 RUN apk add --no-cache curl unzip gnupg cosign
 WORKDIR /tools
 
@@ -94,7 +94,7 @@ RUN set -eux; \
     rm "$tofu_zip" "$sums" "$sums.sig" "$sums.pem"
 
 # ---- final image ----
-FROM alpine:3.22@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8
+FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
 RUN apk add --no-cache ca-certificates && \
     adduser -D -H -u 10000 groundtruth && \
     mkdir -p /data && chown groundtruth:groundtruth /data
