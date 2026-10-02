@@ -87,7 +87,7 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run format
@@ -104,6 +104,28 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - run: npm run test
       - run: npm run build
+
+  # Builds the release image the way `docker build .` (and GoReleaser) does, so a
+  # Dockerfile change that would break a release - a signature check, a pinned
+  # digest, a moved download - fails here instead of at tag time.
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker build -t groundtruth:ci .
+      - name: The bundled binaries run
+        run: |
+          docker run --rm --entrypoint terraform groundtruth:ci version
+          docker run --rm --entrypoint tofu groundtruth:ci version
+      - name: The server starts and answers its health check
+        run: |
+          docker run -d --name groundtruth -p 127.0.0.1:8080:8080 groundtruth:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8080/healthz; then exit 0; fi
+            sleep 1
+          done
+          docker logs groundtruth
+          exit 1

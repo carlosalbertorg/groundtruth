@@ -1,7 +1,7 @@
 .PHONY: build-frontend build run test lint fmt clean
 
 build-frontend:
-	cd web && npm ci && npm run build
+	cd web && npm ci --ignore-scripts && npm run build
 	mkdir -p internal/webassets/dist
 	rm -rf internal/webassets/dist/*
 	cp -r web/dist/. internal/webassets/dist/

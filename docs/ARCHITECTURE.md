@@ -145,6 +145,16 @@ Every response carries a `Content-Security-Policy` (scripts and connections only
 
 API tokens (for CI-triggered checks) follow the identical pattern - opaque value, hashed at rest, scoped to the user who created them for revocation. A check started with one is recorded as `triggered_by: api`, to tell it apart from a click on "Check now" (`manual`) and from the scheduler (`schedule`).
 
+## The release image and its build
+
+The Docker image is built from base images pinned by digest as well as tag, so a moved or tampered tag can't change what ships; Dependabot proposes bumps of both together.
+
+Terraform and OpenTofu are downloaded at *build* time, never at runtime, and verified before they are used. A checksum fetched from the same place as the archive would only prove the download wasn't corrupted, so what is verified is the signature on the checksum file: HashiCorp's PGP signature for Terraform (it only counts if made by the key with the fingerprint recorded in the `Dockerfile`, the one HashiCorp publishes), and OpenTofu's keyless cosign signature from its release workflow. A tampered checksum file, or a signature by any other key, fails the build; both were checked.
+
+The frontend is built with `npm ci --ignore-scripts`, so no dependency's install script runs in the build (the only dependency that declares one, `fsevents`, is macOS-only). CI builds the image on every push and pull request and starts it, so a change that would break a release fails there rather than at tag time. The release's archives and checksums are signed with cosign (keyless, GitHub OIDC); the release notes show how to verify them.
+
+To bump Terraform or OpenTofu, change `TERRAFORM_VERSION` or `TOFU_VERSION` in the `Dockerfile`: the new files are verified by the same steps.
+
 ## What a reviewer should check first
 
 If you're auditing this project, the highest-value places to look are:
@@ -154,5 +164,6 @@ If you're auditing this project, the highest-value places to look are:
 3. `internal/checks/service.go` - is the redacted result really the only form of a check that reaches the database?
 4. `internal/httpapi/router.go` and `security.go` - is every route behind the right middleware, and does an unknown path fail closed?
 5. `internal/auth` and `internal/alerting/dispatcher.go` - what proves a caller is the operator, and what leaves the process.
+6. `Dockerfile` - is every binary that ends up in the image verified against its publisher, not just against a checksum from the same download?
 
 Everything else follows from those files being correct.
