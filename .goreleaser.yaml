@@ -2,7 +2,7 @@ version: 2
 
 before:
   hooks:
-    - sh -c "cd web && npm ci && npm run build"
+    - sh -c "cd web && npm ci --ignore-scripts && npm run build"
     - sh -c "rm -rf internal/webassets/dist && cp -r web/dist internal/webassets/dist"
 
 builds:

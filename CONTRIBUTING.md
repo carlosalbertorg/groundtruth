@@ -23,7 +23,7 @@ go test ./... -race
 golangci-lint run
 
 cd web
-npm ci
+npm ci --ignore-scripts
 npm run typecheck
 npm run lint
 npm run format
